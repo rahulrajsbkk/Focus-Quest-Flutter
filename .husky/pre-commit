@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+echo "📝 Running Flutter Analyze..."
+if ! flutter analyze; then
+  echo "❌ Flutter Analyze failed"
+  exit 1
+fi
+
+echo "🎨 Running Dart Format..."
+if ! dart format --output=none --set-exit-if-changed .; then
+  echo "❌ Dart Format failed. Run 'dart format .' to fix."
+  exit 1
+fi
+
+echo "✅ Pre-commit checks passed!"
