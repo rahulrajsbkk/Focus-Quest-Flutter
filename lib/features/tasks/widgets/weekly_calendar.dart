@@ -1,5 +1,7 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:focus_quest/core/services/haptic_service.dart';
 import 'package:intl/intl.dart';
 
 class WeeklyCalendar extends StatefulWidget {
@@ -17,101 +19,156 @@ class WeeklyCalendar extends StatefulWidget {
 }
 
 class _WeeklyCalendarState extends State<WeeklyCalendar> {
-  late ScrollController _scrollController;
+  late DateTime _weekStart;
   final List<DateTime> _days = [];
 
   @override
   void initState() {
     super.initState();
-    _scrollController = ScrollController();
+    _weekStart = _getStartOfWeek(widget.selectedDate);
     _generateDays();
-
-    // Scroll to center selected date after build
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _scrollToSelectedDate();
-    });
   }
 
   @override
   void didUpdateWidget(WeeklyCalendar oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.selectedDate != widget.selectedDate) {
-      _scrollToSelectedDate();
+    // If the selected date changes to a day outside the currently displayed
+    // week, update the view to show that week.
+    if (!_isDateInVisibleWeek(widget.selectedDate)) {
+      setState(() {
+        _weekStart = _getStartOfWeek(widget.selectedDate);
+        _generateDays();
+      });
     }
   }
 
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
+  DateTime _getStartOfWeek(DateTime date) {
+    // Find the Monday (weekday 1) of the week containing the given date
+    final dayOnly = DateTime(date.year, date.month, date.day);
+    return dayOnly.subtract(Duration(days: dayOnly.weekday - 1));
+  }
+
+  bool _isDateInVisibleWeek(DateTime date) {
+    if (_days.isEmpty) return false;
+    final endOfWeek = _weekStart.add(const Duration(days: 6));
+    final checkDate = DateTime(date.year, date.month, date.day);
+    return !checkDate.isBefore(_weekStart) && !checkDate.isAfter(endOfWeek);
   }
 
   void _generateDays() {
-    final now = DateTime.now();
-    // Generate 30 days before and 30 days after
-    // You might want to adjust this range or make it infinite with a proper
-    // builder
-    final start = now.subtract(const Duration(days: 30));
-    for (var i = 0; i < 60; i++) {
-      _days.add(start.add(Duration(days: i)));
+    _days.clear();
+    for (var i = 0; i < 7; i++) {
+      _days.add(_weekStart.add(Duration(days: i)));
     }
   }
 
-  void _scrollToSelectedDate() {
-    if (!_scrollController.hasClients) return;
+  void _nextWeek() {
+    unawaited(HapticService().selectionClick());
+    setState(() {
+      _weekStart = _weekStart.add(const Duration(days: 7));
+      _generateDays();
+    });
+  }
 
-    final index = _days.indexWhere(
-      (date) =>
-          date.year == widget.selectedDate.year &&
-          date.month == widget.selectedDate.month &&
-          date.day == widget.selectedDate.day,
-    );
-
-    if (index != -1) {
-      // 52 is width (44) + margin (8) approx
-      // Center it: index * itemWidth - screenWidth/2 + itemWidth/2
-      final screenWidth = MediaQuery.of(context).size.width;
-      const itemWidth = 52.0;
-      final offset = (index * itemWidth) - (screenWidth / 2) + (itemWidth / 2);
-
-      unawaited(
-        _scrollController.animateTo(
-          offset.clamp(0.0, _scrollController.position.maxScrollExtent),
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeInOut,
-        ),
-      );
-    }
+  void _previousWeek() {
+    unawaited(HapticService().selectionClick());
+    setState(() {
+      _weekStart = _weekStart.subtract(const Duration(days: 7));
+      _generateDays();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 65,
-      child: ListView.builder(
-        controller: _scrollController,
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: _days.length,
-        itemBuilder: (context, index) {
-          final date = _days[index];
-          final isSelected = _isSameDay(date, widget.selectedDate);
+    final theme = Theme.of(context);
+    final monthYear = DateFormat('MMMM yyyy').format(_weekStart);
 
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: _DateItem(
-              date: date,
-              isSelected: isSelected,
-              onTap: () => widget.onDateSelected(date),
-            ),
-          );
-        },
-      ),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Month Label with Navigation
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                monthYear,
+                style: theme.textTheme.labelMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: theme.colorScheme.primary,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              Row(
+                children: [
+                  _NavButton(
+                    icon: Icons.chevron_left_rounded,
+                    onPressed: _previousWeek,
+                  ),
+                  const SizedBox(width: 8),
+                  _NavButton(
+                    icon: Icons.chevron_right_rounded,
+                    onPressed: _nextWeek,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        // Days Row
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: _days.map((date) {
+              final isSelected = _isSameDay(date, widget.selectedDate);
+              return _DateItem(
+                date: date,
+                isSelected: isSelected,
+                onTap: () => widget.onDateSelected(date),
+              );
+            }).toList(),
+          ),
+        ),
+      ],
     );
   }
 
   bool _isSameDay(DateTime a, DateTime b) {
     return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+}
+
+class _NavButton extends StatelessWidget {
+  const _NavButton({
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.all(4),
+          child: Icon(
+            icon,
+            size: 20,
+            color: theme.colorScheme.primary,
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -135,17 +192,18 @@ class _DateItem extends StatelessWidget {
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        width: 44,
+        width: 42, // Slightly smaller to fit arrows if needed
+        padding: const EdgeInsets.symmetric(vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected
-              ? theme.colorScheme.primary
-              : theme.colorScheme.surface,
-          borderRadius: BorderRadius.circular(25),
-          border: Border.all(
-            color: isSelected
-                ? theme.colorScheme.primary
-                : theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
-          ),
+          color: isSelected ? theme.colorScheme.primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          border: isSelected
+              ? null
+              : Border.all(
+                  color: isToday
+                      ? theme.colorScheme.primary.withValues(alpha: 0.5)
+                      : Colors.transparent,
+                ),
           boxShadow: isSelected
               ? [
                   BoxShadow(
@@ -157,7 +215,7 @@ class _DateItem extends StatelessWidget {
               : null,
         ),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Text(
               DateFormat('E').format(date).toUpperCase(), // Mon, Tue
@@ -165,31 +223,19 @@ class _DateItem extends StatelessWidget {
                 color: isSelected
                     ? theme.colorScheme.onPrimary
                     : theme.colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w600,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
                 fontSize: 10,
               ),
             ),
-            const SizedBox(height: 4),
-            Container(
-              width: 26,
-              height: 26,
-              decoration: isToday && !isSelected
-                  ? BoxDecoration(
-                      color: theme.colorScheme.primaryContainer,
-                      shape: BoxShape.circle,
-                    )
-                  : null,
-              alignment: Alignment.center,
-              child: Text(
-                date.day.toString(),
-                style: theme.textTheme.titleMedium?.copyWith(
-                  color: isSelected
-                      ? theme.colorScheme.onPrimary
-                      : (isToday
-                            ? theme.colorScheme.onPrimaryContainer
-                            : theme.colorScheme.onSurface),
-                  fontWeight: FontWeight.bold,
-                ),
+            const SizedBox(height: 6),
+            Text(
+              date.day.toString(),
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: isSelected
+                    ? theme.colorScheme.onPrimary
+                    : theme.colorScheme.onSurface,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
               ),
             ),
           ],
