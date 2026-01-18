@@ -345,6 +345,59 @@ class Quest {
     }
   }
 
+  /// Checks if the quest is scheduled for a specific date.
+  bool isScheduledForDate(DateTime date) {
+    // Ensure the date is not before the quest was created (start date)
+    if (_isBeforeDay(date, createdAt)) return false;
+
+    // If not repeating, check due date
+    if (!isRepeating) {
+      if (dueDate != null) {
+        return _isSameDay(dueDate!, date);
+      }
+      // If no due date, maybe repeat "pending" quests on "today"?
+      // For now, only precise match or if it's created today?
+      return false;
+    }
+
+    // For repeating quests
+    switch (repeatFrequency) {
+      case RepeatFrequency.none:
+        return false;
+      case RepeatFrequency.daily:
+        if (repeatDays.isEmpty) return true; // Every day
+        return repeatDays.contains(Weekday.fromValue(date.weekday));
+      case RepeatFrequency.weekly:
+        // Assume weekly repeats on the same weekday as created/started
+        // Or if simple "every 7 days" logic matches date
+        // For calendar visualization, let's assume same weekday as createdAt
+        return date.weekday == createdAt.weekday;
+      case RepeatFrequency.monthly:
+        // Assume same day of month
+        return date.day == createdAt.day;
+    }
+  }
+
+  bool _isBeforeDay(DateTime a, DateTime b) {
+    if (a.year < b.year) return true;
+    if (a.year == b.year && a.month < b.month) return true;
+    if (a.year == b.year && a.month == b.month && a.day < b.day) return true;
+    return false;
+  }
+
+  /// Returns the effective status for a specific date key.
+  QuestStatus statusForDate(DateTime date) {
+    if (repeatFrequency == RepeatFrequency.daily) {
+      if (status == QuestStatus.completed && lastCompletedAt != null) {
+        return _isSameDay(lastCompletedAt!, date)
+            ? QuestStatus.completed
+            : QuestStatus.pending;
+      }
+      return QuestStatus.pending;
+    }
+    return status;
+  }
+
   bool _isSameDay(DateTime a, DateTime b) {
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }

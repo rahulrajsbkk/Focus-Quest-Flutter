@@ -157,25 +157,34 @@ class QuestListNotifier extends AsyncNotifier<QuestListState> {
   }
 
   /// Toggle quest completion status
-  Future<void> toggleQuestCompletion(String questId) async {
+  Future<void> toggleQuestCompletion(
+    String questId, {
+    DateTime? completionDate,
+  }) async {
     final currentState = state.value;
     if (currentState == null) return;
 
     final quest = currentState.quests.firstWhere((Quest q) => q.id == questId);
-    final now = DateTime.now();
+    final now = completionDate ?? DateTime.now();
 
     Quest updatedQuest;
 
     if (quest.isRepeating) {
-      // For repeating quests, increment completion count and reset
-      if (quest.isCompleted || !quest.isDueForRepeat) {
-        // Uncompleting or already not due - just toggle status
+      final isSameDayCompletion =
+          quest.lastCompletedAt != null &&
+          _isSameDay(quest.lastCompletedAt!, now);
+
+      if (quest.isCompleted && isSameDayCompletion) {
+        // Uncompleting the current day's completion
         updatedQuest = quest.copyWith(
           status: QuestStatus.pending,
           updatedAt: now,
+          completionCount: quest.completionCount > 0
+              ? quest.completionCount - 1
+              : 0,
         );
       } else {
-        // Completing a repeating quest
+        // Completing for this day (or moving completion to this day)
         updatedQuest = quest.copyWith(
           status: QuestStatus.completed,
           lastCompletedAt: now,
@@ -250,6 +259,10 @@ class QuestListNotifier extends AsyncNotifier<QuestListState> {
     );
 
     await updateQuest(updatedQuest);
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 }
 

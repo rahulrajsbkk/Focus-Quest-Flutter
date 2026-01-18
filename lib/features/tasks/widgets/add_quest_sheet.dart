@@ -6,11 +6,15 @@ import 'package:focus_quest/models/quest.dart';
 class AddQuestSheet extends StatefulWidget {
   const AddQuestSheet({
     this.existingQuest,
+    this.initialDate,
     super.key,
   });
 
   /// If provided, the sheet will edit this quest instead of creating a new one.
   final Quest? existingQuest;
+
+  /// Optional date to schedule the quest for (defaults to now).
+  final DateTime? initialDate;
 
   @override
   State<AddQuestSheet> createState() => _AddQuestSheetState();
@@ -54,6 +58,19 @@ class _AddQuestSheetState extends State<AddQuestSheet> {
     if (!_formKey.currentState!.validate()) return;
 
     final now = DateTime.now();
+    // Use initialDate if provided, otherwise now.
+    // We combine the date from initialDate with the time from now to preserve
+    // ordering.
+    final baseDate = widget.initialDate ?? now;
+    final effectiveDate = DateTime(
+      baseDate.year,
+      baseDate.month,
+      baseDate.day,
+      now.hour,
+      now.minute,
+      now.second,
+    );
+
     final quest = widget.existingQuest != null
         ? widget.existingQuest!.copyWith(
             title: _titleController.text.trim(),
@@ -80,7 +97,11 @@ class _AddQuestSheetState extends State<AddQuestSheet> {
             repeatDays: _selectedRepeat == RepeatFrequency.daily
                 ? _selectedDays
                 : <Weekday>{},
-            createdAt: now,
+            createdAt: effectiveDate,
+            // If not repeating, set due date to the selected date
+            dueDate: _selectedRepeat == RepeatFrequency.none
+                ? effectiveDate
+                : null,
           );
 
     await HapticService().lightImpact();
