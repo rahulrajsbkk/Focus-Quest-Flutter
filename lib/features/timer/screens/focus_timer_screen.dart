@@ -12,6 +12,7 @@ import 'package:focus_quest/features/timer/widgets/timer_display.dart';
 import 'package:focus_quest/features/timer/widgets/timer_settings_sheet.dart';
 import 'package:focus_quest/models/focus_session.dart';
 import 'package:focus_quest/models/quest.dart';
+import 'package:sleek_circular_slider/sleek_circular_slider.dart';
 
 /// Focus Timer screen with Pomodoro functionality
 class FocusTimerScreen extends ConsumerStatefulWidget {
@@ -100,6 +101,11 @@ class _FocusTimerScreenState extends ConsumerState<FocusTimerScreen>
     final focusState = ref.watch<FocusState>(focusSessionProvider);
     final questsState = ref.watch<AsyncValue<QuestListState>>(
       questListProvider,
+    );
+
+    ref.listen<FocusState>(
+      focusSessionProvider,
+      _checkSessionCompletion,
     );
 
     final currentSession = focusState.currentSession;
@@ -364,6 +370,30 @@ class _FocusTimerScreenState extends ConsumerState<FocusTimerScreen>
                   unawaited(HapticService().mediumImpact());
                   _showCancelConfirmation(context);
                 },
+                onStartFocusLongPress: () => _showDurationPicker(
+                  context,
+                  'Focus Duration',
+                  focusState.focusDuration,
+                  (d) => ref
+                      .read<FocusSessionNotifier>(focusSessionProvider.notifier)
+                      .setFocusDuration(d),
+                ),
+                onStartShortBreakLongPress: () => _showDurationPicker(
+                  context,
+                  'Short Break Duration',
+                  focusState.shortBreakDuration,
+                  (d) => ref
+                      .read<FocusSessionNotifier>(focusSessionProvider.notifier)
+                      .setShortBreakDuration(d),
+                ),
+                onStartLongBreakLongPress: () => _showDurationPicker(
+                  context,
+                  'Long Break Duration',
+                  focusState.longBreakDuration,
+                  (d) => ref
+                      .read<FocusSessionNotifier>(focusSessionProvider.notifier)
+                      .setLongBreakDuration(d),
+                ),
               ),
             ),
           ],
@@ -382,6 +412,136 @@ class _FocusTimerScreenState extends ConsumerState<FocusTimerScreen>
           borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
         builder: (context) => const TimerSettingsSheet(),
+      ),
+    );
+  }
+
+  void _checkSessionCompletion(FocusState? previous, FocusState next) {
+    if (previous?.currentSession == null) return;
+    if (next.currentSession != null) return; // Still active or started new one
+
+    // Session ended (currentSession became null)
+    // Check if it was a COMPLETED FOCUS session
+    if (next.sessionHistory.isEmpty) return;
+    final lastSession = next.sessionHistory.first;
+
+    if (lastSession.id == previous!.currentSession!.id &&
+        lastSession.status == FocusSessionStatus.completed &&
+        lastSession.type == FocusSessionType.focus) {
+      // It was a completed focus session
+      _showBreakPrompt(context);
+    }
+  }
+
+  void _showDurationPicker(
+    BuildContext context,
+    String title,
+    Duration currentDuration,
+    ValueChanged<Duration> onChanged,
+  ) {
+    unawaited(
+      showDialog<void>(
+        context: context,
+        builder: (context) {
+          var selectedMinutes = currentDuration.inMinutes;
+          // Clamp checks
+          if (selectedMinutes < 1) selectedMinutes = 1;
+          if (selectedMinutes > 120) selectedMinutes = 120;
+
+          return StatefulBuilder(
+            builder: (context, setState) {
+              return AlertDialog(
+                title: Text(title, textAlign: TextAlign.center),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(height: 16),
+                    SleekCircularSlider(
+                      initialValue: selectedMinutes.toDouble(),
+                      min: 1,
+                      max: 120,
+                      appearance: CircularSliderAppearance(
+                        size: 200,
+                        startAngle: 180,
+                        angleRange: 180,
+                        customColors: CustomSliderColors(
+                          trackColor: Theme.of(
+                            context,
+                          ).colorScheme.primary.withValues(alpha: 0.2),
+                          progressBarColor: Theme.of(
+                            context,
+                          ).colorScheme.primary,
+                          dotColor: Theme.of(context).colorScheme.primary,
+                          shadowColor: Theme.of(
+                            context,
+                          ).colorScheme.primary.withValues(alpha: 0.5),
+                        ),
+                        infoProperties: InfoProperties(
+                          mainLabelStyle: Theme.of(
+                            context,
+                          ).textTheme.displayMedium,
+                          modifier: (double value) {
+                            return '${value.round()}m';
+                          },
+                        ),
+                      ),
+                      onChange: (double value) {
+                        setState(() {
+                          selectedMinutes = value.round();
+                        });
+                      },
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed: () {
+                      onChanged(Duration(minutes: selectedMinutes));
+                      Navigator.pop(context);
+                    },
+                    child: const Text('Save'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  void _showBreakPrompt(BuildContext context) {
+    unawaited(
+      showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Great Focus!'),
+          content: const Text(
+            'You have completed your focus session. '
+            'Would you like to take a 5-minute break?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Skip'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(context);
+                unawaited(
+                  ref
+                      .read<FocusSessionNotifier>(focusSessionProvider.notifier)
+                      .startBreakSession(),
+                );
+              },
+              child: const Text('Take 5m Break'),
+            ),
+          ],
+        ),
       ),
     );
   }

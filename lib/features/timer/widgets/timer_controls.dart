@@ -16,6 +16,9 @@ class TimerControls extends StatelessWidget {
     required this.onResume,
     required this.onComplete,
     required this.onCancel,
+    this.onStartFocusLongPress,
+    this.onStartShortBreakLongPress,
+    this.onStartLongBreakLongPress,
     super.key,
   });
 
@@ -31,6 +34,9 @@ class TimerControls extends StatelessWidget {
   final VoidCallback onResume;
   final VoidCallback onComplete;
   final VoidCallback onCancel;
+  final VoidCallback? onStartFocusLongPress;
+  final VoidCallback? onStartShortBreakLongPress;
+  final VoidCallback? onStartLongBreakLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -55,6 +61,7 @@ class TimerControls extends StatelessWidget {
                 ),
                 elevation: 4,
               ),
+              onLongPress: onStartFocusLongPress,
               child: const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -89,6 +96,7 @@ class TimerControls extends StatelessWidget {
                     ),
                     padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
+                  onLongPress: onStartShortBreakLongPress,
                   child: const Text('Short Break'),
                 ),
               ),
@@ -106,6 +114,7 @@ class TimerControls extends StatelessWidget {
                     ),
                     padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
+                  onLongPress: onStartLongBreakLongPress,
                   child: const Text('Long Break'),
                 ),
               ),

@@ -303,11 +303,14 @@ class UserProgress {
   /// Records a completed focus session and awards XP.
   UserProgress completeFocusSession({
     required Duration sessionDuration,
-    int xpReward = 25,
+    int? xpReward,
     DateTime? now,
   }) {
+    // Award 1 XP per minute of focus, minimum 5 XP
+    final calculatedXp = xpReward ?? sessionDuration.inMinutes.clamp(5, 500);
+
     return copyWith(
-      totalXp: totalXp + xpReward,
+      totalXp: totalXp + calculatedXp,
       focusSessionsCompleted: focusSessionsCompleted + 1,
       totalFocusTime: totalFocusTime + sessionDuration,
       updatedAt: now ?? DateTime.now(),

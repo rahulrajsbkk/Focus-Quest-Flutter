@@ -42,15 +42,36 @@ class NotificationService {
     required String title,
     required String body,
     String? channelKey,
+    DateTime? scheduleDate,
+    int? id,
   }) async {
     await AwesomeNotifications().createNotification(
       content: NotificationContent(
-        id: DateTime.now().millisecondsSinceEpoch.remainder(100000),
+        id: id ?? DateTime.now().millisecondsSinceEpoch.remainder(100000),
         channelKey: channelKey ?? 'timer_channel',
         title: title,
         body: body,
         category: NotificationCategory.Alarm,
+        wakeUpScreen: true,
+        fullScreenIntent: true,
       ),
+      schedule: scheduleDate != null
+          ? NotificationCalendar.fromDate(
+              date: scheduleDate,
+              preciseAlarm: true,
+              allowWhileIdle: true,
+            )
+          : null,
     );
+  }
+
+  static const int focusAlertId = 999;
+
+  Future<void> cancelNotification(int id) async {
+    await AwesomeNotifications().cancel(id);
+  }
+
+  Future<void> cancelAllNotifications() async {
+    await AwesomeNotifications().cancelAll();
   }
 }

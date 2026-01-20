@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:focus_quest/core/services/notification_service.dart';
+import 'package:focus_quest/features/profile/providers/user_progress_provider.dart';
 import 'package:focus_quest/models/focus_session.dart';
 import 'package:focus_quest/models/quest.dart';
 import 'package:focus_quest/services/sembast_service.dart';
@@ -30,6 +31,7 @@ class FocusState {
     this.focusDuration = PomodoroDefaults.focusDuration,
     this.shortBreakDuration = PomodoroDefaults.shortBreakDuration,
     this.longBreakDuration = PomodoroDefaults.longBreakDuration,
+    this.focusSessionsInCycle = 0,
   });
 
   final FocusSession? currentSession;
@@ -43,6 +45,7 @@ class FocusState {
   final Duration focusDuration;
   final Duration shortBreakDuration;
   final Duration longBreakDuration;
+  final int focusSessionsInCycle;
 
   bool get hasActiveSession =>
       currentSession != null &&
@@ -67,6 +70,7 @@ class FocusState {
     Duration? focusDuration,
     Duration? shortBreakDuration,
     Duration? longBreakDuration,
+    int? focusSessionsInCycle,
   }) {
     return FocusState(
       currentSession: clearCurrentSession
@@ -87,6 +91,7 @@ class FocusState {
       focusDuration: focusDuration ?? this.focusDuration,
       shortBreakDuration: shortBreakDuration ?? this.shortBreakDuration,
       longBreakDuration: longBreakDuration ?? this.longBreakDuration,
+      focusSessionsInCycle: focusSessionsInCycle ?? this.focusSessionsInCycle,
     );
   }
 }
@@ -116,38 +121,53 @@ class FocusSessionNotifier extends Notifier<FocusState>
   final Uuid _uuid = const Uuid();
   Timer? _tickTimer;
   Timer? _backgroundAlertTimer;
-  DateTime? _backgroundStartTime;
+  bool _wasRunningBeforeBackground = false;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
-      _onBackground();
+      unawaited(_onBackground());
     } else if (state == AppLifecycleState.resumed) {
       _onForeground();
     }
   }
 
-  void _onBackground() {
+  Future<void> _onBackground() async {
     if (state.isTimerRunning &&
         state.currentSession?.type == FocusSessionType.focus) {
-      _backgroundStartTime = DateTime.now();
+      _wasRunningBeforeBackground = true;
+      // Pause the session ticking and save state
+      // We await this to ensure old notifications are cancelled BEFORE
+      // we schedule the new one
+      await pauseSession();
+
       _backgroundAlertTimer?.cancel();
-      _backgroundAlertTimer = Timer(const Duration(minutes: 2), () {
-        if (_backgroundStartTime != null) {
-          unawaited(
-            NotificationService().showAlert(
-              title: 'Focus Alert!',
-              body: "You've been out of the app for 2 minutes. Stay focused!",
-            ),
-          );
-        }
-      });
+
+      // Schedule alarm for 2 mins from now
+      await NotificationService().showAlert(
+        id: NotificationService.focusAlertId,
+        title: 'Focus Alert!',
+        body: "You've been out of the app for 2 minutes. Stay focused!",
+        // Ensure we add a small buffer or valid future time
+        scheduleDate: DateTime.now().add(const Duration(minutes: 2)),
+      );
+    } else {
+      _wasRunningBeforeBackground = false;
     }
   }
 
   void _onForeground() {
-    _backgroundStartTime = null;
     _backgroundAlertTimer?.cancel();
+    unawaited(
+      NotificationService().cancelNotification(
+        NotificationService.focusAlertId,
+      ),
+    );
+
+    if (_wasRunningBeforeBackground) {
+      unawaited(resumeSession());
+      _wasRunningBeforeBackground = false;
+    }
   }
 
   /// Load today's session history
@@ -206,6 +226,9 @@ class FocusSessionNotifier extends Notifier<FocusState>
 
       if (activeSession != null) {
         _startTicking();
+        if (activeSession.isActive) {
+          unawaited(_scheduleSessionEndNotification());
+        }
       }
     } on Exception catch (e) {
       state = state.copyWith(
@@ -243,6 +266,7 @@ class FocusSessionNotifier extends Notifier<FocusState>
       );
 
       _startTicking();
+      unawaited(_scheduleSessionEndNotification());
     } on Exception catch (e) {
       state = state.copyWith(error: 'Failed to start session: $e');
     }
@@ -277,6 +301,7 @@ class FocusSessionNotifier extends Notifier<FocusState>
       );
 
       _startTicking();
+      unawaited(_scheduleSessionEndNotification());
     } on Exception catch (e) {
       state = state.copyWith(error: 'Failed to start break: $e');
     }
@@ -297,6 +322,7 @@ class FocusSessionNotifier extends Notifier<FocusState>
 
       state = state.copyWith(currentSession: pausedSession);
       _stopTicking();
+      unawaited(NotificationService().cancelAllNotifications());
     } on Exception catch (e) {
       state = state.copyWith(error: 'Failed to pause session: $e');
     }
@@ -317,6 +343,7 @@ class FocusSessionNotifier extends Notifier<FocusState>
 
       state = state.copyWith(currentSession: resumedSession);
       _startTicking();
+      unawaited(_scheduleSessionEndNotification());
     } on Exception catch (e) {
       state = state.copyWith(error: 'Failed to resume session: $e');
     }
@@ -338,10 +365,24 @@ class FocusSessionNotifier extends Notifier<FocusState>
       // Update stats if it was a focus session
       var completedToday = state.completedSessionsToday;
       var totalTimeToday = state.totalFocusTimeToday;
+      var focusSessionsInCycle = state.focusSessionsInCycle;
 
       if (completedSession.type == FocusSessionType.focus) {
         completedToday++;
         totalTimeToday += completedSession.elapsedDuration;
+        focusSessionsInCycle++;
+
+        // Update progress system
+        unawaited(
+          ref
+              .read(userProgressProvider.notifier)
+              .completeFocusSession(completedSession.elapsedDuration),
+        );
+      } else {
+        // Break completed, reset focusSessionsInCycle if it reached limit
+        if (focusSessionsInCycle >= PomodoroDefaults.sessionsBeforeLongBreak) {
+          focusSessionsInCycle = 0;
+        }
       }
 
       state = state.copyWith(
@@ -349,9 +390,25 @@ class FocusSessionNotifier extends Notifier<FocusState>
         sessionHistory: [completedSession, ...state.sessionHistory],
         completedSessionsToday: completedToday,
         totalFocusTimeToday: totalTimeToday,
+        focusSessionsInCycle: focusSessionsInCycle,
       );
 
       _stopTicking();
+      unawaited(NotificationService().cancelAllNotifications());
+
+      // Show completion feedback/next steps
+      if (completedSession.type == FocusSessionType.focus) {
+        final needsLongBreak =
+            focusSessionsInCycle >= PomodoroDefaults.sessionsBeforeLongBreak;
+        unawaited(
+          NotificationService().showAlert(
+            title: 'Focus Session Complete!',
+            body: needsLongBreak
+                ? 'Time for a long break!'
+                : 'Great job! Take a short break.',
+          ),
+        );
+      }
     } on Exception catch (e) {
       state = state.copyWith(error: 'Failed to complete session: $e');
     }
@@ -378,6 +435,7 @@ class FocusSessionNotifier extends Notifier<FocusState>
       );
 
       _stopTicking();
+      unawaited(NotificationService().cancelAllNotifications());
     } on Exception catch (e) {
       state = state.copyWith(error: 'Failed to cancel session: $e');
     }
@@ -452,6 +510,25 @@ class FocusSessionNotifier extends Notifier<FocusState>
     return records
         .map((r) => FocusSession.fromJson(Map<String, dynamic>.from(r.value)))
         .toList();
+  }
+
+  Future<void> _scheduleSessionEndNotification() async {
+    final session = state.currentSession;
+    if (session == null || !session.isActive) return;
+
+    final remaining = session.remainingDuration;
+    if (remaining <= Duration.zero) return;
+
+    final scheduleDate = DateTime.now().add(remaining);
+    final isFocus = session.type == FocusSessionType.focus;
+
+    await NotificationService().showAlert(
+      title: isFocus ? 'Focus Session Complete!' : 'Break Ended!',
+      body: isFocus
+          ? 'Great job! You finished your focus session.'
+          : 'Time to get back to work!',
+      scheduleDate: scheduleDate,
+    );
   }
 
   void _startTicking() {
