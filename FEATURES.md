@@ -45,6 +45,14 @@ A brief overview of implemented features in the Focus Quest app.
 
 ---
 
+## 🎨 Personalized Experience
+
+- **Dynamic Greetings** — Time-based greetings (Good Morning, Good Afternoon, Good Evening)
+- **User Display Name** — Shows authenticated user's name on the home screen
+- **Welcoming Interface** — Makes the app feel personal and engaging
+
+---
+
 ## 🎨 Theme System
 
 - **Light & Dark Mode** — Full theme support with smooth switching

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:focus_quest/core/services/haptic_service.dart';
 import 'package:focus_quest/core/widgets/theme_switcher.dart';
+import 'package:focus_quest/features/auth/providers/auth_provider.dart';
 import 'package:focus_quest/features/navigation/providers/navigation_provider.dart';
 import 'package:focus_quest/features/tasks/providers/date_provider.dart';
 import 'package:focus_quest/features/tasks/providers/quest_provider.dart';
@@ -51,12 +52,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
+  String _getGreeting() {
+    final hour = DateTime.now().hour;
+    if (hour < 12) {
+      return 'Good Morning';
+    } else if (hour < 17) {
+      return 'Good Afternoon';
+    } else {
+      return 'Good Evening';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final questState = ref.watch(questListProvider);
     final selectedCategory = ref.watch(selectedCategoryProvider);
     final selectedDate = ref.watch(selectedDateProvider);
+    final authState = ref.watch(authProvider);
 
     // Filter quests for selected date
     final allQuests = questState.value?.quests ?? [];
@@ -109,6 +122,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final totalCount = dailyQuests.length;
     final progress = totalCount > 0 ? completedCount / totalCount : 0.0;
 
+    // Get user display name
+    final userName = authState.value?.displayName ?? 'Adventurer';
+
     return Scaffold(
       body: SafeArea(
         bottom: false,
@@ -124,7 +140,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Good Morning,',
+                          '${_getGreeting()},',
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: theme.colorScheme.onSurface.withValues(
                               alpha: 0.6,
@@ -132,7 +148,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           ),
                         ),
                         Text(
-                          'John Doe', // Placeholder
+                          userName,
                           style: theme.textTheme.headlineMedium?.copyWith(
                             fontWeight: FontWeight.bold,
                           ),

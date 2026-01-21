@@ -1,13 +1,39 @@
 # 🎯 Focus Quest
 
+<div align="center">
+
+![Flutter](https://img.shields.io/badge/Flutter-3.0+-02569B?style=for-the-badge&logo=flutter&logoColor=white)
+![Dart](https://img.shields.io/badge/Dart-3.0+-0175C2?style=for-the-badge&logo=dart&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
+![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20iOS%20%7C%20Web%20%7C%20Desktop-blue?style=for-the-badge)
+
+**A dopamine-driven productivity planner designed for users with ADHD**
+
+[Features](#-key-features) • [Installation](#-installation) • [Documentation](#-documentation) • [Contributing](CONTRIBUTING.md)
+
+</div>
+
+---
+
+## 📝 About
+
 Focus Quest is a **dopamine-driven productivity planner** designed specifically for users with ADHD. It focuses on overcoming executive dysfunction, time blindness, and task initiation paralysis through gamification and low-friction interactions.
 
-## 🚀 Key Features
+### 🎯 Core Principles
+
+- **Anti-Shame Design**: No guilt trips, just progress
+- **Low Friction**: Create tasks in seconds, not minutes
+- **Gamification**: Earn XP, level up, unlock achievements
+- **Dopamine Optimization**: Visual feedback, streaks, and instant gratification
+- **Local-First**: Your data stays on your device
+
+## ✨ Key Features
 
 - **Quest Management:** Anti-shame, low-friction task creation with categories and energy levels
 - **Sub-Quests:** 5-minute micro-tasks to combat overwhelm
 - **Focus Mode:** Pomodoro-style timer with pause/resume and session tracking
 - **Progress System:** XP, leveling, streaks, and achievements
+- **Personalized Experience:** Dynamic time-based greetings and user display name
 - **Theme Support:** Light/Dark mode with persistent preference
 - **Local-First:** Pure Sembast (offline-first) reliability
 - **Multi-Platform:** Built with Flutter for Android, iOS, macOS, Linux, Windows, and Web
@@ -45,6 +71,85 @@ lib/
 ├── providers/        # State Management
 └── services/         # Sembast, Firestore, Notifications, Audio/Haptics
 ```
+
+---
+
+## 🚀 Installation
+
+### Prerequisites
+
+- **Flutter SDK** (3.0 or higher)
+- **Dart SDK** (3.0 or higher)
+- Platform-specific requirements:
+  - **Android**: Android Studio, SDK 21+
+  - **iOS**: Xcode 13+, macOS
+  - **Web**: Chrome (for development)
+  - **Desktop**: Platform-specific toolchains
+
+### Setup
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/yourusername/focus_quest.git
+   cd focus_quest
+   ```
+
+2. **Install dependencies**
+   ```bash
+   flutter pub get
+   ```
+
+3. **Generate localization files**
+   ```bash
+   flutter gen-l10n
+   ```
+
+4. **Run the app**
+   ```bash
+   # For development on your default device
+   flutter run
+
+   # For specific platforms
+   flutter run -d chrome          # Web
+   flutter run -d macos           # macOS
+   flutter run -d android         # Android
+   flutter run -d ios             # iOS
+   ```
+
+### Building for Production
+
+```bash
+# Android APK
+flutter build apk --release
+
+# Android App Bundle
+flutter build appbundle --release
+
+# iOS
+flutter build ios --release
+
+# macOS
+flutter build macos --release
+
+# Web
+flutter build web --release
+
+# Windows
+flutter build windows --release
+
+# Linux
+flutter build linux --release
+```
+
+---
+
+## 📖 Documentation
+
+- **[Features Overview](FEATURES.md)** - Detailed feature breakdown
+- **[High-Level Design (HLD)](hld.md)** - System architecture and technical stack
+- **[Theme System](lib/core/theme/theme.md)** - Theming implementation guide
+- **[Contributing Guidelines](CONTRIBUTING.md)** - How to contribute
+- **[Firebase Configuration](FIREBASE_CONFIG.md)** - Firebase setup (optional)
 
 ---
 

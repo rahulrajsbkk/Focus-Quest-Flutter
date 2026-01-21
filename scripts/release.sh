@@ -17,7 +17,7 @@ APP_NAME="focus_quest"
 VERSION=""
 BUILD_NUMBER=""
 RELEASE_TAG=""
-PRERELEASE=true  # Beta release by default
+PRERELEASE=true  # Prerelease by default (beta)
 GITHUB_REPO=""
 
 # Output directory for builds
@@ -241,7 +241,17 @@ build_windows() {
 create_github_release() {
     print_header "Creating GitHub Release"
     
-    RELEASE_TAG="v${VERSION}-beta"
+    if [ "$PRERELEASE" = true ]; then
+        RELEASE_TAG="v${VERSION}-beta"
+        RELEASE_TITLE="Focus Quest ${VERSION} Beta"
+        PRERELEASE_FLAG="--prerelease"
+        VERSION_LABEL="(Beta)"
+    else
+        RELEASE_TAG="v${VERSION}"
+        RELEASE_TITLE="Focus Quest ${VERSION}"
+        PRERELEASE_FLAG=""
+        VERSION_LABEL=""
+    fi
     
     # Check if release already exists
     if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPO" &> /dev/null; then
@@ -258,10 +268,10 @@ create_github_release() {
     fi
     
     # Generate release notes
-    RELEASE_NOTES="## Focus Quest ${VERSION} (Beta)
+    RELEASE_NOTES="## Focus Quest ${VERSION} ${VERSION_LABEL}
 
 ### What's New
-- Beta release for testing
+- $([ "$PRERELEASE" = true ] && echo "Beta release for testing" || echo "Stable release")
 
 ### Downloads
 - **Android**: Download the APK for direct installation
@@ -280,24 +290,33 @@ Built on: $(date)
     # Create release with all artifacts
     print_info "Creating release $RELEASE_TAG..."
     
-    RELEASE_FILES=""
+    RELEASE_FILES=()
     for file in "$BUILD_OUTPUT_DIR"/*; do
         if [ -f "$file" ]; then
-            RELEASE_FILES="$RELEASE_FILES $file"
+            RELEASE_FILES+=("$file")
         fi
     done
     
-    if [ -z "$RELEASE_FILES" ]; then
+    if [ ${#RELEASE_FILES[@]} -eq 0 ]; then
         print_error "No build artifacts found in $BUILD_OUTPUT_DIR"
         exit 1
     fi
     
-    gh release create "$RELEASE_TAG" \
+    # Run gh release create
+    # Use array for arguments to handle optional flags and filenames correctly
+    gh_args=(release create "$RELEASE_TAG" \
         --repo "$GITHUB_REPO" \
-        --title "Focus Quest ${VERSION} Beta" \
-        --notes "$RELEASE_NOTES" \
-        --prerelease \
-        $RELEASE_FILES
+        --title "$RELEASE_TITLE" \
+        --notes "$RELEASE_NOTES")
+    
+    if [ "$PRERELEASE" = true ]; then
+        gh_args+=("--prerelease")
+    fi
+    
+    # Add files
+    gh_args+=("${RELEASE_FILES[@]}")
+    
+    gh "${gh_args[@]}"
     
     print_success "GitHub release created: $RELEASE_TAG"
     print_info "View release at: https://github.com/$GITHUB_REPO/releases/tag/$RELEASE_TAG"
@@ -315,12 +334,14 @@ usage() {
     echo "  --web           Build web app"
     echo "  --linux         Build Linux app"
     echo "  --windows       Build Windows app"
+    echo "  --prod          Create a production release (non-beta, no -beta tag)"
     echo "  --release-only  Skip builds, only create GitHub release from existing artifacts"
     echo "  --no-clean      Skip cleaning previous builds"
     echo "  --help          Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0 --all                    # Build all and release"
+    echo "  $0 --all                    # Build all and release (beta)"
+    echo "  $0 --all --prod             # Build all and release (production)"
     echo "  $0 --android --macos        # Build only Android and macOS"
     echo "  $0 --release-only           # Create release from existing builds"
 }
@@ -385,6 +406,10 @@ main() {
                 NO_CLEAN=true
                 shift
                 ;;
+            --prod)
+                PRERELEASE=false
+                shift
+                ;;
             --help)
                 usage
                 exit 0
@@ -397,7 +422,11 @@ main() {
         esac
     done
     
-    print_header "Focus Quest Beta Release"
+    if [ "$PRERELEASE" = true ]; then
+        print_header "Focus Quest Beta Release"
+    else
+        print_header "Focus Quest Production Release"
+    fi
     
     check_prerequisites
     get_version_from_pubspec
