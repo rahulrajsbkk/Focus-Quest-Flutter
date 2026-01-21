@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:focus_quest/core/services/notification_service.dart';
+import 'package:focus_quest/features/auth/providers/auth_provider.dart';
 import 'package:focus_quest/models/user_progress.dart';
 import 'package:focus_quest/services/sembast_service.dart';
 import 'package:sembast/sembast.dart';
@@ -36,6 +37,9 @@ class UserProgressNotifier extends AsyncNotifier<UserProgress> {
   }
 
   Future<void> addXp(int xp) async {
+    final user = ref.read(authProvider).value;
+    if (user?.isGamificationEnabled == false) return;
+
     final current = state.value;
     if (current == null) return;
 
@@ -50,6 +54,9 @@ class UserProgressNotifier extends AsyncNotifier<UserProgress> {
   Future<void> completeFocusSession(Duration duration) async {
     final current = state.value;
     if (current == null) return;
+
+    final user = ref.read(authProvider).value;
+    if (user?.isGamificationEnabled == false) return;
 
     // Award 1 XP per minute of focus, minimum 5 XP
     final calculatedXp = duration.inMinutes.clamp(5, 500);
@@ -66,6 +73,9 @@ class UserProgressNotifier extends AsyncNotifier<UserProgress> {
   Future<void> completeQuest() async {
     final current = state.value;
     if (current == null) return;
+
+    final user = ref.read(authProvider).value;
+    if (user?.isGamificationEnabled == false) return;
 
     var updated = current.completeQuest();
     updated = updated.updateStreak();

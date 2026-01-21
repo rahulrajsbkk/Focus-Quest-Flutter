@@ -30,8 +30,9 @@ class NotificationService {
         ),
       ],
     );
+  }
 
-    // Check for permissions
+  Future<void> requestPermission() async {
     final isAllowed = await AwesomeNotifications().isNotificationAllowed();
     if (!isAllowed) {
       await AwesomeNotifications().requestPermissionToSendNotifications();

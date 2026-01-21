@@ -7,6 +7,7 @@ import 'package:focus_quest/core/theme/app_colors.dart';
 import 'package:focus_quest/features/calendar/screens/calendar_screen.dart';
 import 'package:focus_quest/features/journal/screens/daily_reflection_screen.dart';
 import 'package:focus_quest/features/navigation/providers/navigation_provider.dart';
+import 'package:focus_quest/features/profile/screens/profile_screen.dart';
 import 'package:focus_quest/features/tasks/providers/date_provider.dart';
 import 'package:focus_quest/features/tasks/providers/quest_provider.dart';
 import 'package:focus_quest/features/tasks/screens/home_screen.dart';
@@ -27,7 +28,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     const CalendarScreen(),
     const HomeScreen(), // Dummy for center button
     const FocusTimerScreen(),
-    const PlaceholderScreen(title: 'Profile'),
+    const ProfileScreen(),
   ];
 
   void _onItemTapped(int index) {

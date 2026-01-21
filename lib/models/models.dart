@@ -1,3 +1,4 @@
+export 'app_user.dart';
 export 'focus_session.dart';
 export 'journal_entry.dart';
 export 'quest.dart';

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:focus_quest/core/services/haptic_service.dart';
+import 'package:focus_quest/core/services/notification_service.dart';
 import 'package:focus_quest/core/theme/app_colors.dart';
 import 'package:focus_quest/features/tasks/providers/quest_provider.dart';
 import 'package:focus_quest/features/timer/providers/focus_session_provider.dart';
@@ -52,6 +53,11 @@ class _FocusTimerScreenState extends ConsumerState<FocusTimerScreen>
             .selectQuest(widget.initialQuest);
       });
     }
+
+    // Request notification permission when entering focus mode
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(NotificationService().requestPermission());
+    });
   }
 
   @override
