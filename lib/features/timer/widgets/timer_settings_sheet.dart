@@ -96,6 +96,28 @@ class TimerSettingsSheet extends ConsumerWidget {
                     );
               },
             ),
+            const SizedBox(height: 20),
+
+            // Pause on background
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                'Pause on Background',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              subtitle: Text(
+                'Pauses the timer if you leave the app',
+                style: theme.textTheme.bodySmall,
+              ),
+              value: focusState.pauseOnBackground,
+              onChanged: (value) {
+                ref
+                    .read<FocusSessionNotifier>(focusSessionProvider.notifier)
+                    .setPauseOnBackground(pause: value);
+              },
+            ),
 
             const SizedBox(height: 24),
 

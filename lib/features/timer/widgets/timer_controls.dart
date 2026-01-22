@@ -19,6 +19,7 @@ class TimerControls extends StatelessWidget {
     this.onStartFocusLongPress,
     this.onStartShortBreakLongPress,
     this.onStartLongBreakLongPress,
+    this.allowPause = true,
     super.key,
   });
 
@@ -37,6 +38,7 @@ class TimerControls extends StatelessWidget {
   final VoidCallback? onStartFocusLongPress;
   final VoidCallback? onStartShortBreakLongPress;
   final VoidCallback? onStartLongBreakLongPress;
+  final bool allowPause;
 
   @override
   Widget build(BuildContext context) {
@@ -138,14 +140,24 @@ class TimerControls extends StatelessWidget {
         const SizedBox(width: 20),
 
         // Pause/Resume button
-        CircleButton(
-          icon: isRunning ? Icons.pause_rounded : Icons.play_arrow_rounded,
-          color: sessionColor,
-          onPressed: isRunning ? onPause : onResume,
-          size: 72,
-          isPrimary: true,
-        ),
-        const SizedBox(width: 20),
+        // Show only if pausing is allowed OR if it is currently paused (so user
+        // can resume)
+        if (allowPause || !isRunning) ...[
+          CircleButton(
+            icon: isRunning ? Icons.pause_rounded : Icons.play_arrow_rounded,
+            color: sessionColor,
+            onPressed: isRunning ? onPause : onResume,
+            size: 72,
+            isPrimary: true,
+          ),
+          const SizedBox(width: 20),
+        ] else ...[
+          // Spacer to keep layout balanced if middle button is gone?
+          // Or just nothing.
+          // Let's add a placeholder to keep the Complete button in the same
+          // relative spot?
+          // No, standard row centering is fine.
+        ],
 
         // Complete button
         CircleButton(

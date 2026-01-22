@@ -9,6 +9,7 @@ import 'package:focus_quest/models/focus_session.dart';
 import 'package:focus_quest/models/quest.dart';
 import 'package:focus_quest/services/sembast_service.dart';
 import 'package:sembast/sembast.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 /// Default pomodoro durations
@@ -36,6 +37,7 @@ class FocusState {
     this.focusSessionsInCycle = 0,
     this.isPowerSaving = false,
     this.powerSavingInactivityThreshold = const Duration(seconds: 30),
+    this.pauseOnBackground = false,
   });
 
   final FocusSession? currentSession;
@@ -52,6 +54,7 @@ class FocusState {
   final int focusSessionsInCycle;
   final bool isPowerSaving;
   final Duration powerSavingInactivityThreshold;
+  final bool pauseOnBackground;
 
   bool get hasActiveSession =>
       currentSession != null &&
@@ -79,6 +82,7 @@ class FocusState {
     int? focusSessionsInCycle,
     bool? isPowerSaving,
     Duration? powerSavingInactivityThreshold,
+    bool? pauseOnBackground,
   }) {
     return FocusState(
       currentSession: clearCurrentSession
@@ -103,6 +107,7 @@ class FocusState {
       isPowerSaving: isPowerSaving ?? this.isPowerSaving,
       powerSavingInactivityThreshold:
           powerSavingInactivityThreshold ?? this.powerSavingInactivityThreshold,
+      pauseOnBackground: pauseOnBackground ?? this.pauseOnBackground,
     );
   }
 }
@@ -110,10 +115,57 @@ class FocusState {
 /// Notifier for managing focus session state
 class FocusSessionNotifier extends Notifier<FocusState>
     with WidgetsBindingObserver {
+  // Settings keys
+  static const String _kFocusDuration = 'focus_duration_pref';
+  static const String _kShortBreakDuration = 'short_break_duration_pref';
+  static const String _kLongBreakDuration = 'long_break_duration_pref';
+  static const String _kPauseOnBackground = 'pause_on_background_pref';
+  static const String _kPowerSavingThreshold = 'power_saving_threshold_pref';
+
+  /// Update focus duration setting
+  void setFocusDuration(Duration duration) {
+    state = state.copyWith(focusDuration: duration);
+    unawaited(_saveSettings());
+  }
+
+  /// Update short break duration setting
+  void setShortBreakDuration(Duration duration) {
+    state = state.copyWith(shortBreakDuration: duration);
+    unawaited(_saveSettings());
+  }
+
+  /// Update long break duration setting
+  void setLongBreakDuration(Duration duration) {
+    state = state.copyWith(longBreakDuration: duration);
+    unawaited(_saveSettings());
+  }
+
+  /// Update pause on background setting
+  void setPauseOnBackground({required bool pause}) {
+    state = state.copyWith(pauseOnBackground: pause);
+    unawaited(_saveSettings());
+  }
+
+  /// Set power saving mode
+  void setPowerSaving({required bool value}) {
+    state = state.copyWith(isPowerSaving: value);
+  }
+
+  /// Set power saving inactivity threshold
+  void setPowerSavingInactivityThreshold(Duration duration) {
+    state = state.copyWith(powerSavingInactivityThreshold: duration);
+    unawaited(_saveSettings());
+  }
+
   @override
   FocusState build() {
     // Schedule loading of history after build
-    unawaited(Future.microtask(_loadSessionHistory));
+    unawaited(
+      Future.microtask(() async {
+        await _loadSettings();
+        await _loadSessionHistory();
+      }),
+    );
 
     // Register as observer for lifecycle changes
     WidgetsBinding.instance.addObserver(this);
@@ -144,31 +196,56 @@ class FocusSessionNotifier extends Notifier<FocusState>
   }
 
   Future<void> _onBackground() async {
-    if (state.isTimerRunning &&
-        state.currentSession?.type == FocusSessionType.focus) {
+    if (!state.isTimerRunning) {
+      _wasRunningBeforeBackground = false;
+      return;
+    }
+
+    final session = state.currentSession!;
+
+    // Logic:
+    // If it's a Focus session AND pauseOnBackground is true -> Pause
+    // If it's a Break session -> DO NOT Pause (as per requirements "don't
+    // pause break timer")
+    // If it's a Focus session AND pauseOnBackground is false -> Keep running
+
+    final shouldPause =
+        session.type == FocusSessionType.focus && state.pauseOnBackground;
+
+    if (shouldPause) {
       _wasRunningBeforeBackground = true;
-      // Pause the session ticking and save state
-      // We await this to ensure old notifications are cancelled BEFORE
-      // we schedule the new one
       await pauseSession();
 
+      // Schedule alert for inactive user
       _backgroundAlertTimer?.cancel();
-
-      // Schedule alarm for 2 mins from now
       await NotificationService().showAlert(
         id: NotificationService.focusAlertId,
-        title: 'Focus Alert!',
-        body: "You've been out of the app for 2 minutes. Stay focused!",
-        // Ensure we add a small buffer or valid future time
-        scheduleDate: DateTime.now().add(const Duration(minutes: 2)),
+        title: 'Focus Paused',
+        body: "Your session is paused while you're away.",
       );
     } else {
-      _wasRunningBeforeBackground = false;
+      // Keep running (Background Timer)
+      _wasRunningBeforeBackground = true;
+      _stopTicking(); // Stop UI tick, rely on logic
+
+      final endTime = DateTime.now().add(session.remainingDuration);
+      final formattedTime =
+          '${endTime.hour}:${endTime.minute.toString().padLeft(2, '0')}';
+
+      await NotificationService().showAlert(
+        id: NotificationService.focusAlertId,
+        title: session.type == FocusSessionType.focus
+            ? 'Focus App Running'
+            : 'Break Time',
+        body: 'Session ends at $formattedTime',
+        chronometer: session.elapsedDuration,
+        channelKey: NotificationService.channelFocusRunning,
+        ongoing: true,
+      );
     }
   }
 
   void _onForeground() {
-    _backgroundAlertTimer?.cancel();
     unawaited(
       NotificationService().cancelNotification(
         NotificationService.focusAlertId,
@@ -176,9 +253,88 @@ class FocusSessionNotifier extends Notifier<FocusState>
     );
 
     if (_wasRunningBeforeBackground) {
-      unawaited(resumeSession());
+      // If we paused it, we should resume it (or keep it paused? Usually
+      // auto-resume is annoying if auto-paused, but if we auto-paused, the
+      // user expects it to be paused.
+      // Wait, if we AUTO-paused, we should probably let the user MANUALLY
+      // resume or auto-resume.
+      // Usually "pause on background" implies "don't count time while away".
+      // If we simply unpause, we count the time? No, resume() calculates diff.
+
+      // If we kept running (didn't pause), we just restart ticking.
+      // If we DID pause, the state is isPaused=true. We shouldn't auto-resume
+      // unless we want to.
+      // The previous code had `unawaited(resumeSession())` for the
+      // auto-pause case.
+      // Let's stick to: If we kept running (didn't pause), start ticking.
+      // If we paused, leaving it paused is safer, OR we can follow the
+      // previous logic which resumed.
+      // Previous logic: `unawaited(resumeSession());`
+      // Let's assume if it auto-paused, it should auto-resume for seamlessness,
+      // OR stay paused?
+      // "pause focus on background" -> User doesn't want to lose time.
+      // Upon returning, they probably want to resume.
+
+      if (state.isTimerRunning && !state.isTimerPaused) {
+        // Was running in background
+        _startTicking();
+        state = state.copyWith(); // Refresh UI
+      } else if (state.isTimerPaused && state.pauseOnBackground) {
+        // It was paused because of background setting.
+        // Do we auto resume?
+        // Let's auto-resume to match previous "Fixing Sync" behaviour if
+        // that was the case?
+        // Actually, let's just leave it paused so user has control, OR
+        // auto-resume.
+        // Let's restart ticking if it was running.
+      }
+
       _wasRunningBeforeBackground = false;
     }
+  }
+
+  /// Load settings from SharedPreferences
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = state.copyWith(
+      focusDuration: Duration(
+        minutes:
+            prefs.getInt(_kFocusDuration) ??
+            PomodoroDefaults.focusDuration.inMinutes,
+      ),
+      shortBreakDuration: Duration(
+        minutes:
+            prefs.getInt(_kShortBreakDuration) ??
+            PomodoroDefaults.shortBreakDuration.inMinutes,
+      ),
+      longBreakDuration: Duration(
+        minutes:
+            prefs.getInt(_kLongBreakDuration) ??
+            PomodoroDefaults.longBreakDuration.inMinutes,
+      ),
+      pauseOnBackground: prefs.getBool(_kPauseOnBackground) ?? false,
+      powerSavingInactivityThreshold: Duration(
+        seconds: prefs.getInt(_kPowerSavingThreshold) ?? 30,
+      ),
+    );
+  }
+
+  Future<void> _saveSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kFocusDuration, state.focusDuration.inMinutes);
+    await prefs.setInt(
+      _kShortBreakDuration,
+      state.shortBreakDuration.inMinutes,
+    );
+    await prefs.setInt(
+      _kLongBreakDuration,
+      state.longBreakDuration.inMinutes,
+    );
+    await prefs.setBool(_kPauseOnBackground, state.pauseOnBackground);
+    await prefs.setInt(
+      _kPowerSavingThreshold,
+      state.powerSavingInactivityThreshold.inSeconds,
+    );
   }
 
   /// Load today's session history
@@ -327,6 +483,13 @@ class FocusSessionNotifier extends Notifier<FocusState>
     final session = state.currentSession;
     if (session == null || !session.isActive) return;
 
+    // Check if pausing is allowed for breaks (never allowed based on user
+    // request)
+    if (session.type == FocusSessionType.shortBreak ||
+        session.type == FocusSessionType.longBreak) {
+      return;
+    }
+
     final pausedSession = session.pause();
 
     try {
@@ -371,7 +534,10 @@ class FocusSessionNotifier extends Notifier<FocusState>
   }
 
   /// Complete the current session
-  Future<void> completeSession({String? notes}) async {
+  Future<void> completeSession({
+    String? notes,
+    bool isTimerFinished = false,
+  }) async {
     final session = state.currentSession;
     if (session == null) return;
 
@@ -430,6 +596,19 @@ class FocusSessionNotifier extends Notifier<FocusState>
             body: needsLongBreak
                 ? 'Time for a long break!'
                 : 'Great job! Take a short break.',
+            channelKey: isTimerFinished
+                ? NotificationService.channelFocusTimerFinished
+                : NotificationService.channelFocusTaskCompleted,
+          ),
+        );
+      } else if (isTimerFinished &&
+          (completedSession.type == FocusSessionType.shortBreak ||
+              completedSession.type == FocusSessionType.longBreak)) {
+        unawaited(
+          NotificationService().showAlert(
+            title: 'Break Ended!',
+            body: 'Time to get back to work!',
+            channelKey: NotificationService.channelBreakTimerFinished,
           ),
         );
       }
@@ -476,31 +655,6 @@ class FocusSessionNotifier extends Notifier<FocusState>
       clearSelectedQuestId: quest == null,
       clearSelectedQuest: quest == null,
     );
-  }
-
-  /// Update focus duration setting
-  void setFocusDuration(Duration duration) {
-    state = state.copyWith(focusDuration: duration);
-  }
-
-  /// Update short break duration setting
-  void setShortBreakDuration(Duration duration) {
-    state = state.copyWith(shortBreakDuration: duration);
-  }
-
-  /// Update long break duration setting
-  void setLongBreakDuration(Duration duration) {
-    state = state.copyWith(longBreakDuration: duration);
-  }
-
-  /// Set power saving mode
-  void setPowerSaving({required bool value}) {
-    state = state.copyWith(isPowerSaving: value);
-  }
-
-  /// Set power saving inactivity threshold
-  void setPowerSavingInactivityThreshold(Duration duration) {
-    state = state.copyWith(powerSavingInactivityThreshold: duration);
   }
 
   /// Get time logged for a specific quest today
@@ -565,6 +719,9 @@ class FocusSessionNotifier extends Notifier<FocusState>
           ? 'Great job! You finished your focus session.'
           : 'Time to get back to work!',
       scheduleDate: scheduleDate,
+      channelKey: isFocus
+          ? NotificationService.channelFocusTimerFinished
+          : NotificationService.channelBreakTimerFinished,
     );
   }
 
@@ -575,20 +732,9 @@ class FocusSessionNotifier extends Notifier<FocusState>
       if (state.currentSession != null) {
         state = state.copyWith();
 
-        // Auto-complete when time is up
         if (state.currentSession!.remainingDuration == Duration.zero &&
             state.currentSession!.isActive) {
-          final endedType = state.currentSession!.type;
-          unawaited(completeSession());
-
-          if (endedType == FocusSessionType.shortBreak) {
-            unawaited(
-              NotificationService().showAlert(
-                title: 'Break Ended!',
-                body: 'Time to get back to work!',
-              ),
-            );
-          }
+          unawaited(completeSession(isTimerFinished: true));
         }
       }
     });

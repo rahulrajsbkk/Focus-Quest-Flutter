@@ -366,6 +366,8 @@ class _FocusTimerScreenState extends ConsumerState<FocusTimerScreen>
                       isPaused: focusState.isTimerPaused,
                       currentSession: currentSession,
                       sessionColor: sessionColor,
+                      allowPause:
+                          currentSession?.type == FocusSessionType.focus,
                       onStartFocus: () {
                         unawaited(HapticService().mediumImpact());
                         unawaited(
