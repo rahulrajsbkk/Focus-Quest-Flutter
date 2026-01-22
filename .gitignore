@@ -63,3 +63,4 @@ firebase.json
 # Signing files
 *.keystore
 *.jks
+.firebase/hosting.YnVpbGQvd2Vi.cache

@@ -2,7 +2,8 @@
     <application
         android:label="Focus Quest"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/quest_icon"
+        android:roundIcon="@mipmap/quest_icon_round">
         <activity
             android:name=".MainActivity"
             android:exported="true"
