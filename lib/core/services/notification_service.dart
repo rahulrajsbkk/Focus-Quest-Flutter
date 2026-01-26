@@ -1,168 +1,213 @@
-import 'package:awesome_notifications/awesome_notifications.dart';
-import 'package:flutter/material.dart';
+import 'dart:io';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:timezone/data/latest_all.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
 
 class NotificationService {
   factory NotificationService() => _instance;
   NotificationService._internal();
   static final NotificationService _instance = NotificationService._internal();
 
-  // Channel IDs
-  static const String channelFocusRunning = 'focus_running_channel';
-  static const String channelFocusTaskCompleted =
-      'focus_task_completed_channel';
-  static const String channelFocusTimerFinished =
-      'focus_timer_finished_channel';
-  static const String channelBreakTimerFinished =
-      'break_timer_finished_channel';
-  static const String channelSystemAlerts = 'system_alerts_channel';
+  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+      FlutterLocalNotificationsPlugin();
 
-  // Group IDs
-  static const String groupTimer = 'timer_group';
-  static const String groupSystem = 'system_group';
+  static const String channelIdTimer = 'focus_timer_channel';
+  static const String channelNameTimer = 'Focus Timer';
+  static const String channelDescTimer =
+      'Shows the current focus timer progress';
+
+  static const String channelIdFinished = 'focus_finished_channel';
+  static const String channelNameFinished = 'Timer Finished';
+  static const String channelDescFinished = 'Alerts when the timer completes';
+
+  static const int notificationIdTimer = 1001;
+  static const int notificationIdFinished = 1002;
 
   Future<void> initialize() async {
-    await AwesomeNotifications().initialize(
-      null, // default icon
-      [
-        // 1. Focus Timer Running (Silent, Low Priority)
-        NotificationChannel(
-          channelGroupKey: groupTimer,
-          channelKey: channelFocusRunning,
-          channelName: 'Focus Timer Running',
-          channelDescription:
-              'Indicates that a focus session is currently active',
-          defaultColor: const Color(0xFF9D50BB),
-          ledColor: Colors.white,
-          importance: NotificationImportance.Low, // No pop-up
-          channelShowBadge: false,
-          playSound: false,
-          enableVibration: false,
-          locked: true, // Persistent
-          onlyAlertOnce: true,
-        ),
-        // 2. Focus Task Completed (Silent, for manual completion or status)
-        NotificationChannel(
-          channelGroupKey: groupTimer,
-          channelKey: channelFocusTaskCompleted,
-          channelName: 'Focus Task Completed',
-          channelDescription:
-              'Notifications when a focus task is marked complete',
-          defaultColor: const Color(0xFF4CAF50),
-          ledColor: Colors.green,
-          importance: NotificationImportance.Default,
-          channelShowBadge: true,
-          playSound: false,
-          enableVibration: false,
-        ),
-        // 3. Focus Timer Finished (Loud, High Priority)
-        NotificationChannel(
-          channelGroupKey: groupTimer,
-          channelKey: channelFocusTimerFinished,
-          channelName: 'Focus Timer Finished',
-          channelDescription: 'Alerts when your focus session time is up',
-          defaultColor: const Color(0xFF9D50BB),
-          ledColor: Colors.white,
-          importance: NotificationImportance.High,
-          channelShowBadge: true,
-          playSound: true,
-          enableVibration: true,
-          criticalAlerts: true,
-        ),
-        // 4. Break Timer Finished (Loud, High Priority)
-        NotificationChannel(
-          channelGroupKey: groupTimer,
-          channelKey: channelBreakTimerFinished,
-          channelName: 'Break Timer Finished',
-          channelDescription: 'Alerts when your break time is over',
-          defaultColor: const Color(0xFF2196F3),
-          ledColor: Colors.blue,
-          importance: NotificationImportance.High,
-          channelShowBadge: true,
-          playSound: true,
-          enableVibration: true,
-          criticalAlerts: true,
-        ),
-        // 5. System Alerts (Standard)
-        NotificationChannel(
-          channelGroupKey: groupSystem,
-          channelKey: channelSystemAlerts,
-          channelName: 'System Alerts',
-          channelDescription: 'General application alerts',
-          defaultColor: Colors.amber,
-          importance: NotificationImportance.Default,
-          channelShowBadge: true,
-        ),
-      ],
-      channelGroups: [
-        NotificationChannelGroup(
-          channelGroupKey: groupTimer,
-          channelGroupName: 'Timer Notifications',
-        ),
-        NotificationChannelGroup(
-          channelGroupKey: groupSystem,
-          channelGroupName: 'System Notifications',
-        ),
-      ],
+    // ITimer initialization
+    tz.initializeTimeZones();
+    final timeZoneName = await FlutterTimezone.getLocalTimezone();
+    tz.setLocalLocation(tz.getLocation(timeZoneName));
+
+    const initializationSettingsAndroid = AndroidInitializationSettings(
+      '@mipmap/quest_icon',
+    );
+
+    const initializationSettingsDarwin = DarwinInitializationSettings(
+      requestAlertPermission: false,
+      requestBadgePermission: false,
+      requestSoundPermission: false,
+    );
+
+    const initializationSettingsLinux = LinuxInitializationSettings(
+      defaultActionName: 'Open notification',
+    );
+
+    const initializationSettings = InitializationSettings(
+      android: initializationSettingsAndroid,
+      iOS: initializationSettingsDarwin,
+      macOS: initializationSettingsDarwin,
+      linux: initializationSettingsLinux,
+    );
+
+    await flutterLocalNotificationsPlugin.initialize(
+      initializationSettings,
+      onDidReceiveNotificationResponse:
+          (NotificationResponse notificationResponse) {
+            // Handle notification tap
+          },
     );
   }
 
   Future<void> requestPermission() async {
-    final isAllowed = await AwesomeNotifications().isNotificationAllowed();
-    if (!isAllowed) {
-      await AwesomeNotifications().requestPermissionToSendNotifications();
+    if (Platform.isIOS || Platform.isMacOS) {
+      await flutterLocalNotificationsPlugin
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >()
+          ?.requestPermissions(
+            alert: true,
+            badge: true,
+            sound: true,
+          );
+      await flutterLocalNotificationsPlugin
+          .resolvePlatformSpecificImplementation<
+            MacOSFlutterLocalNotificationsPlugin
+          >()
+          ?.requestPermissions(
+            alert: true,
+            badge: true,
+            sound: true,
+          );
+    } else if (Platform.isAndroid) {
+      final androidImplementation = flutterLocalNotificationsPlugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+
+      await androidImplementation?.requestNotificationsPermission();
     }
   }
 
-  Future<void> showAlert({
+  /// Shows or updates a progress notification.
+  /// Only Android supports the actual progress bar.
+  /// iOS will simply show a standard notification with text updates.
+  Future<void> showTimerNotification({
     required String title,
     required String body,
-    String? channelKey,
-    DateTime? scheduleDate,
-    int? id,
-    Duration? chronometer,
-    bool ongoing = false,
+    required int progress, // 0 to 100
+    required int maxProgress,
   }) async {
-    await AwesomeNotifications().createNotification(
-      content: NotificationContent(
-        id: id ?? DateTime.now().millisecondsSinceEpoch.remainder(100000),
-        channelKey: channelKey ?? channelSystemAlerts,
-        title: title,
-        body: body,
-        category: _getCategoryForChannel(channelKey),
-        wakeUpScreen: true,
-        fullScreenIntent: true,
-        chronometer: chronometer,
-        locked: ongoing,
-        autoDismissible: !ongoing,
-      ),
-      schedule: scheduleDate != null
-          ? NotificationCalendar.fromDate(
-              date: scheduleDate,
-              preciseAlarm: true,
-              allowWhileIdle: true,
-            )
-          : null,
+    final androidPlatformChannelSpecifics = AndroidNotificationDetails(
+      channelIdTimer,
+      channelNameTimer,
+      channelDescription: channelDescTimer,
+      importance: Importance.low, // vital for smooth progress updates
+      priority: Priority.low,
+      showProgress: true,
+      maxProgress: maxProgress,
+      progress: progress,
+      ongoing: true, // Prevent user from dismissing it easily
+      autoCancel: false,
+      onlyAlertOnce: true,
+    );
+
+    const darwinPlatformChannelSpecifics = DarwinNotificationDetails(
+      presentSound: false, // Update silently
+      presentBanner: true, // Needed to show banner
+      presentList: true,
+    );
+
+    final platformChannelSpecifics = NotificationDetails(
+      android: androidPlatformChannelSpecifics,
+      iOS: darwinPlatformChannelSpecifics, // iOS updates might be throttled
+      macOS: darwinPlatformChannelSpecifics,
+    );
+
+    await flutterLocalNotificationsPlugin.show(
+      notificationIdTimer,
+      title,
+      body,
+      platformChannelSpecifics,
     );
   }
 
-  NotificationCategory _getCategoryForChannel(String? channelKey) {
-    if (channelKey == channelFocusTimerFinished ||
-        channelKey == channelBreakTimerFinished) {
-      return NotificationCategory.Alarm;
-    }
-    if (channelKey == channelFocusRunning) {
-      return NotificationCategory.Service; // Ongoing service
-    }
-    return NotificationCategory.Status;
+  Future<void> scheduleTimerFinished({
+    required DateTime scheduleDate,
+    required String title,
+    required String body,
+  }) async {
+    await flutterLocalNotificationsPlugin.zonedSchedule(
+      notificationIdFinished,
+      title,
+      body,
+      tz.TZDateTime.from(scheduleDate, tz.local),
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          channelIdFinished,
+          channelNameFinished,
+          channelDescription: channelDescFinished,
+          importance: Importance.max,
+          priority: Priority.high,
+          playSound:
+              true, // ignore: avoid_redundant_argument_values, explicit for clarity
+        ),
+        iOS: DarwinNotificationDetails(
+          presentSound: true,
+        ),
+      ),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+    );
   }
 
-  static const int focusAlertId = 999;
+  /// Shows a standard notification (no progress bar).
+  Future<void> showNotification({
+    required String title,
+    required String body,
+    int? id,
+  }) async {
+    const androidPlatformChannelSpecifics = AndroidNotificationDetails(
+      channelIdFinished, // Reusing high importance channel for alerts
+      channelNameFinished,
+      channelDescription: channelDescFinished,
+      importance: Importance.max,
+      priority: Priority.high,
+      playSound:
+          true, // ignore: avoid_redundant_argument_values, explicit for clarity
+    );
+
+    const darwinPlatformChannelSpecifics = DarwinNotificationDetails(
+      presentSound: true,
+      presentBanner: true,
+      presentList: true,
+    );
+
+    const platformChannelSpecifics = NotificationDetails(
+      android: androidPlatformChannelSpecifics,
+      iOS: darwinPlatformChannelSpecifics,
+      macOS: darwinPlatformChannelSpecifics,
+    );
+
+    await flutterLocalNotificationsPlugin.show(
+      id ?? DateTime.now().millisecondsSinceEpoch.remainder(100000),
+      title,
+      body,
+      platformChannelSpecifics,
+    );
+  }
 
   Future<void> cancelNotification(int id) async {
-    await AwesomeNotifications().cancel(id);
+    await flutterLocalNotificationsPlugin.cancel(id);
+  }
+
+  Future<void> cancelTimerNotification() async {
+    await flutterLocalNotificationsPlugin.cancel(notificationIdTimer);
   }
 
   Future<void> cancelAllNotifications() async {
-    await AwesomeNotifications().cancelAll();
+    await flutterLocalNotificationsPlugin.cancelAll();
   }
 }

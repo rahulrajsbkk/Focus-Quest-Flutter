@@ -13,6 +13,7 @@
   "scripts": {
     "prepare": "husky install",
     "build:web": "flutter build web --release",
+    "build:web:hosting": "flutter build web --release && firebase deploy --only hosting --project focusquest-d328c",
     "deploy:hosting": "firebase deploy --only hosting --project focusquest-d328c",
     "deploy:firestore": "firebase deploy --only firestore --project focusquest-d328c",
     "deploy:all": "firebase deploy --project focusquest-d328c",

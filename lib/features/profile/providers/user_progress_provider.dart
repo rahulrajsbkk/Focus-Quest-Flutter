@@ -96,7 +96,7 @@ class UserProgressNotifier extends AsyncNotifier<UserProgress> {
     // Level up notification
     if (newLevel > oldLevel) {
       unawaited(
-        NotificationService().showAlert(
+        NotificationService().showNotification(
           title: 'Level Up!',
           body: 'Congratulations! You reached level $newLevel!',
         ),
@@ -141,7 +141,7 @@ class UserProgressNotifier extends AsyncNotifier<UserProgress> {
     for (final type in newAchievements) {
       p = p.addAchievement(type);
       unawaited(
-        NotificationService().showAlert(
+        NotificationService().showNotification(
           title: 'Achievement Unlocked!',
           body: 'You earned: ${_getAchievementName(type)}',
         ),

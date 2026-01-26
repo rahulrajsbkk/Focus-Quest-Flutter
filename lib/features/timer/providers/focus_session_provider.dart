@@ -218,8 +218,8 @@ class FocusSessionNotifier extends Notifier<FocusState>
 
       // Schedule alert for inactive user
       _backgroundAlertTimer?.cancel();
-      await NotificationService().showAlert(
-        id: NotificationService.focusAlertId,
+      await NotificationService().showNotification(
+        id: 999, // focusAlertId
         title: 'Focus Paused',
         body: "Your session is paused while you're away.",
       );
@@ -232,24 +232,27 @@ class FocusSessionNotifier extends Notifier<FocusState>
       final formattedTime =
           '${endTime.hour}:${endTime.minute.toString().padLeft(2, '0')}';
 
-      await NotificationService().showAlert(
-        id: NotificationService.focusAlertId,
+      final progress =
+          (session.elapsedDuration.inSeconds /
+                  session.plannedDuration.inSeconds *
+                  100)
+              .clamp(0, 100)
+              .toInt();
+
+      await NotificationService().showTimerNotification(
         title: session.type == FocusSessionType.focus
             ? 'Focus App Running'
             : 'Break Time',
         body: 'Session ends at $formattedTime',
-        chronometer: session.elapsedDuration,
-        channelKey: NotificationService.channelFocusRunning,
-        ongoing: true,
+        progress: progress,
+        maxProgress: 100,
       );
     }
   }
 
   void _onForeground() {
     unawaited(
-      NotificationService().cancelNotification(
-        NotificationService.focusAlertId,
-      ),
+      NotificationService().cancelNotification(999),
     );
 
     if (_wasRunningBeforeBackground) {
@@ -591,24 +594,20 @@ class FocusSessionNotifier extends Notifier<FocusState>
         final needsLongBreak =
             focusSessionsInCycle >= PomodoroDefaults.sessionsBeforeLongBreak;
         unawaited(
-          NotificationService().showAlert(
+          NotificationService().showNotification(
             title: 'Focus Session Complete!',
             body: needsLongBreak
                 ? 'Time for a long break!'
                 : 'Great job! Take a short break.',
-            channelKey: isTimerFinished
-                ? NotificationService.channelFocusTimerFinished
-                : NotificationService.channelFocusTaskCompleted,
           ),
         );
       } else if (isTimerFinished &&
           (completedSession.type == FocusSessionType.shortBreak ||
               completedSession.type == FocusSessionType.longBreak)) {
         unawaited(
-          NotificationService().showAlert(
+          NotificationService().showNotification(
             title: 'Break Ended!',
             body: 'Time to get back to work!',
-            channelKey: NotificationService.channelBreakTimerFinished,
           ),
         );
       }
@@ -713,15 +712,12 @@ class FocusSessionNotifier extends Notifier<FocusState>
     final scheduleDate = DateTime.now().add(remaining);
     final isFocus = session.type == FocusSessionType.focus;
 
-    await NotificationService().showAlert(
+    await NotificationService().scheduleTimerFinished(
       title: isFocus ? 'Focus Session Complete!' : 'Break Ended!',
       body: isFocus
           ? 'Great job! You finished your focus session.'
           : 'Time to get back to work!',
       scheduleDate: scheduleDate,
-      channelKey: isFocus
-          ? NotificationService.channelFocusTimerFinished
-          : NotificationService.channelBreakTimerFinished,
     );
   }
 
