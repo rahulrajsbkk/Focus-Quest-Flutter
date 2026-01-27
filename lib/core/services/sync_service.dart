@@ -6,6 +6,7 @@ import 'package:focus_quest/models/app_user.dart';
 import 'package:focus_quest/models/focus_session.dart';
 import 'package:focus_quest/models/journal_entry.dart';
 import 'package:focus_quest/models/quest.dart';
+import 'package:focus_quest/models/user_activity_event.dart';
 import 'package:focus_quest/models/user_progress.dart';
 import 'package:focus_quest/services/sembast_service.dart';
 import 'package:sembast/sembast.dart';
@@ -83,6 +84,15 @@ class SyncService {
     }
   }
 
+  Future<void> syncUserActivityEvent(UserActivityEvent event) async {
+    if (!_isSyncEnabled || _userId == null) return;
+    try {
+      await _firestore.saveUserActivityEvent(_userId!, event);
+    } on Exception catch (e) {
+      debugPrint('Sync Error (Activity Event): $e');
+    }
+  }
+
   /// Performs a full two-way sync between local Sembast and Firestore.
   Future<void> performFullSync() async {
     if (!_isSyncEnabled || _userId == null) return;
@@ -93,19 +103,27 @@ class SyncService {
       final db = await _sembast.database;
 
       await Future.wait([
-        _syncQuests(db),
-        _syncFocusSessions(db),
-        _syncJournalEntries(db),
-        _syncUserProgress(db),
+        _safeRun(() => _syncQuests(db), 'Quests'),
+        _safeRun(() => _syncFocusSessions(db), 'Focus Sessions'),
+        _safeRun(() => _syncJournalEntries(db), 'Journal Entries'),
+        _safeRun(() => _syncActivityEvents(db), 'Activity Events'),
       ]);
 
-      debugPrint('Full sync completed successfully');
+      // Sync UserProgress LAST as it depends on events (conceptually)
+      // For now, we only push the local state as a "backup/view" since it's derived from events
+      await _safeRun(() => _syncUserProgress(db), 'User Progress');
 
-      // We don't force a UI refresh here, but ideally we should notify the
-      // notifiers that data has changed. For now, since mostly this happens
-      // on startup/login, the initial load will handle it.
+      debugPrint('Full sync completed successfully');
     } on Exception catch (e) {
       debugPrint('Full sync failed: $e');
+    }
+  }
+
+  Future<void> _safeRun(Future<void> Function() action, String label) async {
+    try {
+      await action();
+    } on Exception catch (e) {
+      debugPrint('Sync Error ($label): $e');
     }
   }
 
@@ -122,27 +140,31 @@ class SyncService {
     final allIds = {...localMap.keys, ...remoteMap.keys};
 
     for (final id in allIds) {
-      final local = localMap[id];
-      final remote = remoteMap[id];
+      try {
+        final local = localMap[id];
+        final remote = remoteMap[id];
 
-      if (local != null && remote != null) {
-        if ((local.updatedAt ?? local.createdAt).isBefore(
-          remote.updatedAt ?? remote.createdAt,
-        )) {
-          // Remote is newer
-          await _sembast.quests.record(id).put(db, remote.toJson());
-        } else if ((local.updatedAt ?? local.createdAt).isAfter(
-          remote.updatedAt ?? remote.createdAt,
-        )) {
-          // Local is newer
+        if (local != null && remote != null) {
+          if ((local.updatedAt ?? local.createdAt).isBefore(
+            remote.updatedAt ?? remote.createdAt,
+          )) {
+            // Remote is newer
+            await _sembast.quests.record(id).put(db, remote.toJson());
+          } else if ((local.updatedAt ?? local.createdAt).isAfter(
+            remote.updatedAt ?? remote.createdAt,
+          )) {
+            // Local is newer
+            await _firestore.saveQuest(_userId!, local);
+          }
+        } else if (local != null) {
+          // Only local exists
           await _firestore.saveQuest(_userId!, local);
+        } else if (remote != null) {
+          // Only remote exists
+          await _sembast.quests.record(id).put(db, remote.toJson());
         }
-      } else if (local != null) {
-        // Only local exists
-        await _firestore.saveQuest(_userId!, local);
-      } else if (remote != null) {
-        // Only remote exists
-        await _sembast.quests.record(id).put(db, remote.toJson());
+      } on Exception catch (e) {
+        debugPrint('Sync Error (Quest $id): $e');
       }
     }
   }
@@ -160,23 +182,27 @@ class SyncService {
     final allIds = {...localMap.keys, ...remoteMap.keys};
 
     for (final id in allIds) {
-      final local = localMap[id];
-      final remote = remoteMap[id];
+      try {
+        final local = localMap[id];
+        final remote = remoteMap[id];
 
-      if (local != null && remote != null) {
-        if ((local.updatedAt ?? local.startedAt).isBefore(
-          remote.updatedAt ?? remote.startedAt,
-        )) {
-          await _sembast.focusSessions.record(id).put(db, remote.toJson());
-        } else if ((local.updatedAt ?? local.startedAt).isAfter(
-          remote.updatedAt ?? remote.startedAt,
-        )) {
+        if (local != null && remote != null) {
+          if ((local.updatedAt ?? local.startedAt).isBefore(
+            remote.updatedAt ?? remote.startedAt,
+          )) {
+            await _sembast.focusSessions.record(id).put(db, remote.toJson());
+          } else if ((local.updatedAt ?? local.startedAt).isAfter(
+            remote.updatedAt ?? remote.startedAt,
+          )) {
+            await _firestore.saveFocusSession(_userId!, local);
+          }
+        } else if (local != null) {
           await _firestore.saveFocusSession(_userId!, local);
+        } else if (remote != null) {
+          await _sembast.focusSessions.record(id).put(db, remote.toJson());
         }
-      } else if (local != null) {
-        await _firestore.saveFocusSession(_userId!, local);
-      } else if (remote != null) {
-        await _sembast.focusSessions.record(id).put(db, remote.toJson());
+      } on Exception catch (e) {
+        debugPrint('Sync Error (FocusSession $id): $e');
       }
     }
   }
@@ -194,53 +220,78 @@ class SyncService {
     final allIds = {...localMap.keys, ...remoteMap.keys};
 
     for (final id in allIds) {
-      final local = localMap[id];
-      final remote = remoteMap[id];
+      try {
+        final local = localMap[id];
+        final remote = remoteMap[id];
 
-      if (local != null && remote != null) {
-        if ((local.updatedAt ?? local.createdAt).isBefore(
-          remote.updatedAt ?? remote.createdAt,
-        )) {
-          await _sembast.journalEntries.record(id).put(db, remote.toJson());
-        } else if ((local.updatedAt ?? local.createdAt).isAfter(
-          remote.updatedAt ?? remote.createdAt,
-        )) {
+        if (local != null && remote != null) {
+          if ((local.updatedAt ?? local.createdAt).isBefore(
+            remote.updatedAt ?? remote.createdAt,
+          )) {
+            await _sembast.journalEntries.record(id).put(db, remote.toJson());
+          } else if ((local.updatedAt ?? local.createdAt).isAfter(
+            remote.updatedAt ?? remote.createdAt,
+          )) {
+            await _firestore.saveJournalEntry(_userId!, local);
+          }
+        } else if (local != null) {
           await _firestore.saveJournalEntry(_userId!, local);
+        } else if (remote != null) {
+          await _sembast.journalEntries.record(id).put(db, remote.toJson());
         }
-      } else if (local != null) {
-        await _firestore.saveJournalEntry(_userId!, local);
-      } else if (remote != null) {
-        await _sembast.journalEntries.record(id).put(db, remote.toJson());
+      } on Exception catch (e) {
+        debugPrint('Sync Error (JournalEntry $id): $e');
+      }
+    }
+  }
+
+  Future<void> _syncActivityEvents(Database db) async {
+    final remoteEvents = await _firestore.getUserActivityEvents(_userId!);
+    final localRecords = await _sembast.userActivityEvents.find(db);
+    final localEvents = localRecords
+        .map((r) => UserActivityEvent.fromJson(r.value))
+        .toList();
+
+    final localMap = {for (final e in localEvents) e.id: e};
+    final remoteMap = {for (final e in remoteEvents) e.id: e};
+
+    final allIds = {...localMap.keys, ...remoteMap.keys};
+
+    // Events are immutable appendices, so logic is simpler:
+    // If it exists in one and not other -> copy it.
+    for (final id in allIds) {
+      try {
+        final local = localMap[id];
+        final remote = remoteMap[id];
+
+        if (local == null && remote != null) {
+          // Missing locally -> Download
+          await _sembast.userActivityEvents.record(id).put(db, remote.toJson());
+          debugPrint('Synced Event (Down): $id');
+        } else if (local != null && remote == null) {
+          // Missing remotely -> Upload
+          await _firestore.saveUserActivityEvent(_userId!, local);
+          debugPrint('Synced Event (Up): $id');
+        }
+        // If both exist, we assume they are identical (immutable)
+      } on Exception catch (e) {
+        debugPrint('Sync Error (Event $id): $e');
       }
     }
   }
 
   Future<void> _syncUserProgress(Database db) async {
     const progressId = 'default_user'; // Matches UserProgressNotifier._userId
-    final remoteProgress = await _firestore.getUserProgress(_userId!);
     final localRecord = await _sembast.userProgress.record(progressId).get(db);
-    final localProgress = localRecord != null
-        ? UserProgress.fromJson(localRecord)
-        : null;
 
-    if (localProgress != null && remoteProgress != null) {
-      if ((localProgress.updatedAt ?? localProgress.createdAt).isBefore(
-        remoteProgress.updatedAt ?? remoteProgress.createdAt,
-      )) {
-        await _sembast.userProgress
-            .record(progressId)
-            .put(db, remoteProgress.toJson());
-      } else if ((localProgress.updatedAt ?? localProgress.createdAt).isAfter(
-        remoteProgress.updatedAt ?? remoteProgress.createdAt,
-      )) {
-        await _firestore.saveUserProgress(_userId!, localProgress);
-      }
-    } else if (localProgress != null) {
+    if (localRecord != null) {
+      final localProgress = UserProgress.fromJson(localRecord);
+      // We overwrite remote with local because local is the source of truth
+      // derived from events. Ideally we might want to also allow downloading
+      // progress if it's a fresh install BUT, since we just synced events,
+      // the local app will rebuild progress from those events anyway.
+      // So pushing local->remote is just for "viewing" purposes (admin, etc).
       await _firestore.saveUserProgress(_userId!, localProgress);
-    } else if (remoteProgress != null) {
-      await _sembast.userProgress
-          .record(progressId)
-          .put(db, remoteProgress.toJson());
     }
   }
 }

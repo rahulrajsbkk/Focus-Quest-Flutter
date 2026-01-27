@@ -36,6 +36,9 @@ class SembastService {
   final StoreRef<String, Map<String, Object?>> userProgress =
       stringMapStoreFactory.store('userProgress');
 
+  final StoreRef<String, Map<String, Object?>> userActivityEvents =
+      stringMapStoreFactory.store('userActivityEvents');
+
   /// Returns the database instance, initializing it lazily if needed.
   Future<Database> get database async {
     if (_database != null) return _database!;
