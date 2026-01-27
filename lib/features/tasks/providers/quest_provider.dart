@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:focus_quest/core/services/sync_service.dart';
+import 'package:focus_quest/features/profile/providers/user_progress_provider.dart';
 import 'package:focus_quest/models/quest.dart';
 import 'package:focus_quest/services/sembast_service.dart';
 import 'package:sembast/sembast.dart';
@@ -199,7 +202,7 @@ class QuestListNotifier extends AsyncNotifier<QuestListState> {
         final updatedNotes = Map<String, String>.from(quest.completionNotes)
           ..remove(dateKey);
 
-        updatedQuest = quest.copyWith(
+        final uncompletedQuest = quest.copyWith(
           status: QuestStatus.pending,
           updatedAt: now,
           completionCount: quest.completionCount > 0
@@ -207,19 +210,37 @@ class QuestListNotifier extends AsyncNotifier<QuestListState> {
               : 0,
           completionNotes: updatedNotes,
         );
+
+        // Recalculate streak after uncompleting
+        final newStreak = uncompletedQuest.calculateStreak();
+        updatedQuest = uncompletedQuest.copyWith(currentStreak: newStreak);
       } else {
         // Completing for this day (or moving completion to this day)
         final updatedNotes = Map<String, String>.from(quest.completionNotes);
-        if (note != null && note.isNotEmpty) {
-          updatedNotes[dateKey] = note;
-        }
+        // Always add an entry for the date, even with empty note, to track
+        // streaks
+        updatedNotes[dateKey] = note ?? updatedNotes[dateKey] ?? '';
 
-        updatedQuest = quest.copyWith(
+        final completedQuest = quest.copyWith(
           status: QuestStatus.completed,
           lastCompletedAt: now,
           completionCount: quest.completionCount + 1,
           updatedAt: now,
           completionNotes: updatedNotes,
+        );
+
+        // Recalculate streak
+        final newStreak = completedQuest.calculateStreak();
+        updatedQuest = completedQuest.copyWith(
+          currentStreak: newStreak,
+          longestStreak: newStreak > quest.longestStreak
+              ? newStreak
+              : quest.longestStreak,
+        );
+
+        // Update global user progress stats
+        unawaited(
+          ref.read(userProgressProvider.notifier).completeQuest(),
         );
       }
     } else {
@@ -241,6 +262,11 @@ class QuestListNotifier extends AsyncNotifier<QuestListState> {
           completedAt: now,
           updatedAt: now,
           completionNotes: updatedNotes,
+        );
+
+        // Update global user progress stats
+        unawaited(
+          ref.read(userProgressProvider.notifier).completeQuest(),
         );
       }
     }

@@ -332,6 +332,19 @@ class QuestCard extends ConsumerWidget {
                                           ),
                                     ),
                                   ],
+                                  if (quest.isRepeating &&
+                                      quest.currentStreak > 0) ...[
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      '🔥 ${quest.currentStreak}',
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: Colors.orange,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),

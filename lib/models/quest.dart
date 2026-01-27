@@ -123,6 +123,8 @@ class Quest {
     this.skippedDates = const [],
     this.recurrenceEndDate,
     this.completionNotes = const {},
+    this.currentStreak = 0,
+    this.longestStreak = 0,
   });
 
   /// Creates a Quest from a JSON map.
@@ -181,6 +183,8 @@ class Quest {
           (json['completionNotes'] as Map<dynamic, dynamic>?)
               ?.cast<String, String>() ??
           const {},
+      currentStreak: json['currentStreak'] as int? ?? 0,
+      longestStreak: json['longestStreak'] as int? ?? 0,
     );
   }
 
@@ -239,6 +243,12 @@ class Quest {
   /// Notes for specific completion dates.
   final Map<String, String> completionNotes;
 
+  /// Current streak for repeating quests.
+  final int currentStreak;
+
+  /// Longest streak reached for this quest.
+  final int longestStreak;
+
   /// Converts the Quest to a JSON map.
   Map<String, dynamic> toJson() {
     return {
@@ -260,6 +270,8 @@ class Quest {
       'skippedDates': skippedDates.map((d) => d.toIso8601String()).toList(),
       'recurrenceEndDate': recurrenceEndDate?.toIso8601String(),
       'completionNotes': completionNotes,
+      'currentStreak': currentStreak,
+      'longestStreak': longestStreak,
     };
   }
 
@@ -283,6 +295,8 @@ class Quest {
     List<DateTime>? skippedDates,
     DateTime? recurrenceEndDate,
     Map<String, String>? completionNotes,
+    int? currentStreak,
+    int? longestStreak,
   }) {
     return Quest(
       id: id ?? this.id,
@@ -303,6 +317,8 @@ class Quest {
       skippedDates: skippedDates ?? this.skippedDates,
       recurrenceEndDate: recurrenceEndDate ?? this.recurrenceEndDate,
       completionNotes: completionNotes ?? this.completionNotes,
+      currentStreak: currentStreak ?? this.currentStreak,
+      longestStreak: longestStreak ?? this.longestStreak,
     );
   }
 
@@ -448,6 +464,57 @@ class Quest {
       return QuestStatus.pending;
     }
     return status;
+  }
+
+  /// Calculates the current streak based on completionNotes.
+  /// This can be used to recover or verify the stored streak.
+  int calculateStreak() {
+    if (!isRepeating || completionNotes.isEmpty) return 0;
+
+    final sortedDates = completionNotes.keys.toList()..sort();
+    if (sortedDates.isEmpty) return 0;
+
+    var streak = 0;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    var checkDate = today;
+
+    // A streak is valid if completed today OR yesterday (if not yet completed)
+    final mToday = today.month.toString().padLeft(2, '0');
+    final dToday = today.day.toString().padLeft(2, '0');
+    final todayKey = '${today.year}-$mToday-$dToday';
+
+    final yesterday = today.subtract(const Duration(days: 1));
+    final mYesterday = yesterday.month.toString().padLeft(2, '0');
+    final dYesterday = yesterday.day.toString().padLeft(2, '0');
+    final yesterdayKey = '${yesterday.year}-$mYesterday-$dYesterday';
+
+    if (!completionNotes.containsKey(todayKey) &&
+        !completionNotes.containsKey(yesterdayKey)) {
+      return 0;
+    }
+
+    if (!completionNotes.containsKey(todayKey)) {
+      checkDate = yesterday;
+    }
+
+    while (true) {
+      final mKey = checkDate.month.toString().padLeft(2, '0');
+      final dKey = checkDate.day.toString().padLeft(2, '0');
+      final key = '${checkDate.year}-$mKey-$dKey';
+
+      if (completionNotes.containsKey(key)) {
+        streak++;
+        checkDate = checkDate.subtract(const Duration(days: 1));
+      } else {
+        // For daily quests, a gap breaks the streak.
+        // For other repeat frequencies, we might need different logic,
+        // but let's stick to daily continuity for now.
+        break;
+      }
+    }
+
+    return streak;
   }
 
   bool _isSameDay(DateTime a, DateTime b) {

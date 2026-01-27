@@ -128,24 +128,21 @@ class QuestSessionHistoryWidget extends ConsumerWidget {
     return '${seconds}s';
   }
 
-  String _formatSessionDate(DateTime date) {
+  String _formatSessionDayOnly(DateTime date) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final sessionDay = DateTime(date.year, date.month, date.day);
 
-    final hour = date.hour.toString().padLeft(2, '0');
-    final minute = date.minute.toString().padLeft(2, '0');
-
     if (sessionDay == today) {
-      return 'Today $hour:$minute';
+      return 'Today';
     }
 
     final yesterday = today.subtract(const Duration(days: 1));
     if (sessionDay == yesterday) {
-      return 'Yesterday $hour:$minute';
+      return 'Yesterday';
     }
 
-    return '${date.day}/${date.month} $hour:$minute';
+    return '${date.day}/${date.month}/${date.year}';
   }
 
   Color _getStatusColor(FocusSessionStatus status, ThemeData theme) {
@@ -240,6 +237,17 @@ class QuestSessionHistoryWidget extends ConsumerWidget {
         );
         final completedCount = completedSessions.length;
 
+        // Group sessions by day
+        final groupedByDay = <String, List<FocusSession>>{};
+        for (final session in focusSessions) {
+          final s = session.startedAt;
+          final dateKey = '${s.year}-${s.month}-${s.day}';
+          groupedByDay.putIfAbsent(dateKey, () => []).add(session);
+        }
+
+        final sortedDayKeys = groupedByDay.keys.toList()
+          ..sort((a, b) => b.compareTo(a));
+
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -301,8 +309,21 @@ class QuestSessionHistoryWidget extends ConsumerWidget {
             ),
             const SizedBox(height: 8),
 
-            ...focusSessions.take(10).map((session) {
-              final statusColor = _getStatusColor(session.status, theme);
+            ...sortedDayKeys.take(7).map((dayKey) {
+              final daySessions = groupedByDay[dayKey]!;
+              final firstSession = daySessions.first;
+              final dayDuration = daySessions.fold<Duration>(
+                Duration.zero,
+                (total, s) => total + s.elapsedDuration,
+              );
+              final dayStatus =
+                  daySessions.any(
+                    (s) => s.status == FocusSessionStatus.completed,
+                  )
+                  ? FocusSessionStatus.completed
+                  : daySessions.first.status;
+
+              final statusColor = _getStatusColor(dayStatus, theme);
 
               return Padding(
                 padding: const EdgeInsets.only(bottom: 8),
@@ -320,7 +341,9 @@ class QuestSessionHistoryWidget extends ConsumerWidget {
                   child: Row(
                     children: [
                       Icon(
-                        _getStatusIcon(session.status),
+                        dayStatus == FocusSessionStatus.completed
+                            ? Icons.check_circle_rounded
+                            : _getStatusIcon(dayStatus),
                         color: statusColor,
                         size: 20,
                       ),
@@ -330,20 +353,18 @@ class QuestSessionHistoryWidget extends ConsumerWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              _formatSessionDate(session.startedAt),
+                              _formatSessionDayOnly(firstSession.startedAt),
                               style: theme.textTheme.bodyMedium?.copyWith(
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
                             Text(
-                              session.status == FocusSessionStatus.completed
-                                  ? 'Completed'
-                                  : session.status ==
-                                        FocusSessionStatus.interrupted
-                                  ? 'Interrupted'
-                                  : 'In progress',
+                              '${daySessions.length} session'
+                              '${daySessions.length > 1 ? 's' : ''}',
                               style: theme.textTheme.bodySmall?.copyWith(
-                                color: statusColor,
+                                color: theme.colorScheme.onSurface.withValues(
+                                  alpha: 0.5,
+                                ),
                                 fontSize: 11,
                               ),
                             ),
@@ -351,9 +372,10 @@ class QuestSessionHistoryWidget extends ConsumerWidget {
                         ),
                       ),
                       Text(
-                        _formatDuration(session.elapsedDuration),
+                        _formatDuration(dayDuration),
                         style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
+                          fontWeight: FontWeight.bold,
+                          color: theme.colorScheme.primary,
                         ),
                       ),
                     ],
@@ -362,12 +384,12 @@ class QuestSessionHistoryWidget extends ConsumerWidget {
               );
             }),
 
-            if (focusSessions.length > 10)
+            if (sortedDayKeys.length > 7)
               Center(
                 child: Padding(
                   padding: const EdgeInsets.only(top: 8),
                   child: Text(
-                    '+ ${focusSessions.length - 10} more sessions',
+                    '+ ${sortedDayKeys.length - 7} more days',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
                     ),

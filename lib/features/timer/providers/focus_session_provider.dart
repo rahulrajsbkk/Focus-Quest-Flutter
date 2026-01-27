@@ -565,12 +565,14 @@ class FocusSessionNotifier extends Notifier<FocusState>
         totalTimeToday += completedSession.elapsedDuration;
         focusSessionsInCycle++;
 
-        // Update progress system
-        unawaited(
-          ref
-              .read(userProgressProvider.notifier)
-              .completeFocusSession(completedSession.elapsedDuration),
-        );
+        // Update progress system ONLY if linked to a quest
+        if (completedSession.questId != null) {
+          unawaited(
+            ref
+                .read(userProgressProvider.notifier)
+                .completeFocusSession(completedSession.elapsedDuration),
+          );
+        }
       } else {
         // Break completed, reset focusSessionsInCycle if it reached limit
         if (focusSessionsInCycle >= PomodoroDefaults.sessionsBeforeLongBreak) {
@@ -685,14 +687,9 @@ class FocusSessionNotifier extends Notifier<FocusState>
   /// Get all sessions for a specific quest today
   Future<List<FocusSession>> getSessionsForQuest(String questId) async {
     final db = await _db.database;
-    final now = DateTime.now();
-    final todayStart = DateTime(now.year, now.month, now.day);
 
     final finder = Finder(
-      filter: Filter.and([
-        Filter.equals('questId', questId),
-        Filter.greaterThan('startedAt', todayStart.toIso8601String()),
-      ]),
+      filter: Filter.equals('questId', questId),
       sortOrders: [SortOrder('startedAt', false)],
     );
 
