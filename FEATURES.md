@@ -28,6 +28,8 @@ A brief overview of implemented features in the Focus Quest app.
 - **Pomodoro-Style Timer** — Structured focus sessions with planned durations
 - **Session Types** — Focus, Short Break, and Long Break modes
 - **Pause & Resume** — Pause sessions and track total paused time
+- **Strict Mode** — Optional "No Pause" mode for deep focus
+- **State Persistence** — Timer saves its state; close the app and return right where you left off
 - **Session History** — Track completed and interrupted sessions
 
 ---
@@ -61,13 +63,28 @@ A brief overview of implemented features in the Focus Quest app.
 
 ---
 
-## 💾 Data & Storage
+## 🔐 Authentication & Sync
 
-- **Local-First** — All data stored locally using Sembast database
-- **Offline Ready** — Works without internet connection
-- **Fast & Reliable** — No network latency for core operations
+- **Google Sign-In** — Secure authentication to save your progress
+- **Cloud Sync** — Seamlessly sync your data across multiple devices via Firebase
+- **Offline + Online** — Continue working offline; data syncs automatically when back online
+- **Guest Mode** — Try the full app without creating an account (data stays local)
 
 ---
+
+## 💾 Data & Storage
+
+- **Local-First Architecture** — Instant interaction speed using Sembast local database
+- **Cloud Backup** — Optional Firestore backup to prevent data loss
+- **Privacy Focused** — Your data is yours; we only store what's needed for sync
+
+---
+
+## 🔔 Smart Notifications
+
+- **Timer Awareness** — Persistent notifications to keep you aware of your focus time
+- **Pause Alerts** — Gentle reminders if you've left the timer paused for too long
+- **Completion Alerts** — Get notified when your session or break ends
 
 ## 🌍 Internationalization
 

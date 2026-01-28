@@ -25,24 +25,25 @@ Focus Quest is a **dopamine-driven productivity planner** designed specifically 
 - **Low Friction**: Create tasks in seconds, not minutes
 - **Gamification**: Earn XP, level up, unlock achievements
 - **Dopamine Optimization**: Visual feedback, streaks, and instant gratification
-- **Local-First**: Your data stays on your device
+- **Local-First & Cloud Sync**: Data lives on your device, with optional cloud backup
 
 ## ✨ Key Features
 
 - **Quest Management:** Anti-shame, low-friction task creation with categories and energy levels
 - **Sub-Quests:** 5-minute micro-tasks to combat overwhelm
-- **Focus Mode:** Pomodoro-style timer with pause/resume and session tracking
+- **Focus Mode:** Pomodoro-style timer with strict mode, pause tracking, and state persistence
+- **Cloud Sync:** Secure Google Sign-In with cross-device synchronization (Firestore)
 - **Progress System:** XP, leveling, streaks, and achievements
+- **Smart Notifications:** Persistent timer alerts and pause reminders
 - **Personalized Experience:** Dynamic time-based greetings and user display name
 - **Theme Support:** Light/Dark mode with persistent preference
-- **Local-First:** Pure Sembast (offline-first) reliability
-- **Multi-Platform:** Built with Flutter for Android, iOS, macOS, Linux, Windows, and Web
+- **Multi-Platform:** Fully responsive design for Android, iOS, macOS, Linux, Windows, and Web
 
 📖 **[See detailed feature list →](FEATURES.md)**
 
 ## 📐 Design & Architecture
 
-The project follows a local-first architecture where the local database (Sembast) is the single source of truth.
+The project follows a **Local-First with Cloud Sync** architecture. The local Sembast database acts as the single source of truth for the UI to ensure instant reactivity, while a background SyncService handles data synchronization with Cloud Firestore.
 
 For a detailed breakdown of the system architecture, module breakdown, and technical stack, please refer to:
 
