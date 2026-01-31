@@ -1,6 +1,5 @@
-import 'package:path/path.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:sembast/sembast_io.dart';
+import 'package:focus_quest/core/database/database_helper.dart';
+import 'package:sembast/sembast.dart';
 
 /// Service for storing simple preferences using Sembast.
 ///
@@ -20,9 +19,7 @@ class PreferenceStorageService {
   Future<void> init() async {
     if (_database != null) return;
 
-    final appDir = await getApplicationDocumentsDirectory();
-    final dbPath = join(appDir.path, 'preferences.db');
-    _database = await databaseFactoryIo.openDatabase(dbPath);
+    _database = await openAppDatabase('preferences.db');
   }
 
   /// Get a string preference value

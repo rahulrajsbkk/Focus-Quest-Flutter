@@ -1,9 +1,6 @@
-import 'dart:io';
-
 import 'package:flutter/foundation.dart';
-import 'package:path/path.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:sembast/sembast_io.dart';
+import 'package:focus_quest/core/database/database_helper.dart';
+import 'package:sembast/sembast.dart';
 
 /// Central Sembast database service with lazy initialization,
 /// singleton pattern, and corruption recovery.
@@ -61,48 +58,9 @@ class SembastService {
     }
   }
 
-  /// Opens the database with corruption recovery.
+  /// Opens the database using the platform-specific helper.
   Future<Database> _openDatabase() async {
-    final dbPath = await _getDatabasePath();
-
-    try {
-      return await databaseFactoryIo.openDatabase(dbPath);
-    } on DatabaseException catch (e) {
-      // Database might be corrupted, attempt recovery
-      debugPrint('SembastService: Database open failed, attempting recovery.');
-      debugPrint('Error: $e');
-
-      return _recoverDatabase(dbPath);
-    }
-  }
-
-  /// Recovers from a corrupted database by deleting and recreating it.
-  Future<Database> _recoverDatabase(String dbPath) async {
-    try {
-      // Attempt to delete the corrupted database file
-      final dbFile = File(dbPath);
-      if (dbFile.existsSync()) {
-        await dbFile.delete();
-        debugPrint('SembastService: Corrupted database deleted.');
-      }
-
-      // Create a fresh database
-      final freshDb = await databaseFactoryIo.openDatabase(dbPath);
-      debugPrint('SembastService: Fresh database created after recovery.');
-      return freshDb;
-    } on Exception catch (recoveryError) {
-      // If recovery fails, throw with context
-      throw StateError(
-        'SembastService: Failed to recover database. '
-        'Recovery error: $recoveryError',
-      );
-    }
-  }
-
-  /// Gets the full path to the database file.
-  Future<String> _getDatabasePath() async {
-    final appDir = await getApplicationDocumentsDirectory();
-    return join(appDir.path, _dbName);
+    return openAppDatabase(_dbName);
   }
 
   /// Checks if the database has been initialized.
@@ -120,24 +78,15 @@ class SembastService {
   ///
   /// This is a destructive operation - use with caution.
   Future<void> reset() async {
-    final dbPath = await _getDatabasePath();
-
     // Close existing connection
     await close();
 
-    // Delete the database file
-    final dbFile = File(dbPath);
-    if (dbFile.existsSync()) {
-      await dbFile.delete();
-    }
+    // Delete the database using platform-specific helper
+    await deleteAppDatabase(_dbName);
 
     // Database will be recreated on next access
     debugPrint('SembastService: Database reset complete.');
   }
-
-  /// Gets the database path for testing/debugging purposes.
-  @visibleForTesting
-  Future<String> getDatabasePathForTesting() => _getDatabasePath();
 
   /// Gets the raw database reference for testing purposes.
   @visibleForTesting
