@@ -74,7 +74,7 @@ final journalRepositoryProvider = Provider<JournalRepository>((ref) {
 
 /// State notifier for the list of journal entries.
 class JournalNotifier extends AsyncNotifier<List<JournalEntry>> {
-  late final JournalRepository _repository;
+  late JournalRepository _repository;
 
   @override
   Future<List<JournalEntry>> build() async {

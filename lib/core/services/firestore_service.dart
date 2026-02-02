@@ -56,6 +56,27 @@ class FirestoreService {
         .toList();
   }
 
+  Stream<List<Quest>> getQuestsStream(String userId) {
+    return _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('quests')
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs
+              .map((doc) {
+                try {
+                  return Quest.fromJson(doc.data());
+                } on Exception catch (e) {
+                  debugPrint('Error parsing quest ${doc.id}: $e');
+                  return null;
+                }
+              })
+              .whereType<Quest>()
+              .toList();
+        });
+  }
+
   Future<void> deleteQuest(String userId, String questId) async {
     await _firestore
         .collection('users')
@@ -95,6 +116,27 @@ class FirestoreService {
         .toList();
   }
 
+  Stream<List<FocusSession>> getFocusSessionsStream(String userId) {
+    return _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('focus_sessions')
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs
+              .map((doc) {
+                try {
+                  return FocusSession.fromJson(doc.data());
+                } on Exception catch (e) {
+                  debugPrint('Error parsing session ${doc.id}: $e');
+                  return null;
+                }
+              })
+              .whereType<FocusSession>()
+              .toList();
+        });
+  }
+
   // MARK: - Journal Entries
 
   Future<void> saveJournalEntry(String userId, JournalEntry entry) async {
@@ -123,6 +165,27 @@ class FirestoreService {
         })
         .whereType<JournalEntry>()
         .toList();
+  }
+
+  Stream<List<JournalEntry>> getJournalEntriesStream(String userId) {
+    return _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('journal_entries')
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs
+              .map((doc) {
+                try {
+                  return JournalEntry.fromJson(doc.data());
+                } on Exception catch (e) {
+                  debugPrint('Error parsing entry ${doc.id}: $e');
+                  return null;
+                }
+              })
+              .whereType<JournalEntry>()
+              .toList();
+        });
   }
 
   // MARK: - User Progress
@@ -180,5 +243,27 @@ class FirestoreService {
         })
         .whereType<UserActivityEvent>()
         .toList();
+  }
+
+  Stream<List<UserActivityEvent>> getUserActivityEventsStream(String userId) {
+    return _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('activity_events')
+        .orderBy('occurredAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs
+              .map((doc) {
+                try {
+                  return UserActivityEvent.fromJson(doc.data());
+                } on Exception catch (e) {
+                  debugPrint('Error parsing activity event ${doc.id}: $e');
+                  return null;
+                }
+              })
+              .whereType<UserActivityEvent>()
+              .toList();
+        });
   }
 }

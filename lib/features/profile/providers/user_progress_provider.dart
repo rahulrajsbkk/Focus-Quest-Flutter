@@ -12,13 +12,24 @@ import 'package:sembast/sembast.dart';
 import 'package:uuid/uuid.dart';
 
 class UserProgressNotifier extends AsyncNotifier<UserProgress> {
-  late final SembastService _db;
+  final SembastService _db = SembastService();
   static const String _userId = 'default_user';
 
   @override
   Future<UserProgress> build() async {
-    _db = SembastService();
-    return _loadAndCalculateProgress();
+    // 1. Load basic state from events
+    final progress = await _loadAndCalculateProgress();
+
+    // 2. Silent backfill of achievements not yet recorded as events
+    // (This handles the "migration" for existing users)
+    final newAchievements = _scanForNewAchievements(progress);
+    if (newAchievements.isNotEmpty) {
+      await _persistAchievements(newAchievements, notify: false);
+      // Reload to include the new events
+      return _loadAndCalculateProgress();
+    }
+
+    return progress;
   }
 
   Future<UserProgress> _loadAndCalculateProgress() async {
@@ -31,7 +42,7 @@ class UserProgressNotifier extends AsyncNotifier<UserProgress> {
         .toList();
 
     // Calculate state from events
-    var progress = UserProgress.initial(id: _userId);
+    final progress = UserProgress.initial(id: _userId);
 
     // If no events, return initial
     if (events.isEmpty) {
@@ -41,24 +52,14 @@ class UserProgressNotifier extends AsyncNotifier<UserProgress> {
     // Sort events by date (oldest first) to replay history
     events.sort((a, b) => a.occurredAt.compareTo(b.occurredAt));
 
-    progress = _calculateProgress(progress, events);
-
-    // Check achievements on the final state
-    // passing null as oldLevel to check all
-    progress = _checkAchievements(progress, null);
-
-    // Actually, we might want to know if we just leveled up in the
-    // *last* action.
-    // For now, let's just ensure consistent state.
-
-    return progress;
+    return _calculateProgress(progress, events);
   }
 
   UserProgress _calculateProgress(
     UserProgress initial,
     List<UserActivityEvent> events,
   ) {
-    final p = initial;
+    var p = initial;
 
     // Reset counters
     var totalXp = 0;
@@ -87,6 +88,9 @@ class UserProgressNotifier extends AsyncNotifier<UserProgress> {
               seconds: event.metadata['durationSeconds'] as int,
             );
           }
+        case UserActivityType.achievementUnlocked:
+          // Handled in separate pass
+          break;
         case UserActivityType.manualAdjustment:
         case UserActivityType.legacyImport:
           // Handle legacy stats if present
@@ -156,7 +160,8 @@ class UserProgressNotifier extends AsyncNotifier<UserProgress> {
     }
 
     // Update Progress Object
-    return p.copyWith(
+    // Update Progress Object
+    p = p.copyWith(
       totalXp: totalXp,
       questsCompleted: quests,
       subQuestsCompleted: subQuests,
@@ -167,6 +172,28 @@ class UserProgressNotifier extends AsyncNotifier<UserProgress> {
       lastActiveDate: sortedDates.isNotEmpty ? sortedDates.last : null,
       updatedAt: events.isNotEmpty ? events.last.occurredAt : DateTime.now(),
     );
+
+    // Apply achievements from events
+    for (final event in events) {
+      if (event.type == UserActivityType.achievementUnlocked) {
+        if (event.metadata.containsKey('achievementId')) {
+          final output = event.metadata['achievementId'] as String;
+          AchievementType? foundType;
+          for (final val in AchievementType.values) {
+            if (val.name == output) {
+              foundType = val;
+              break;
+            }
+          }
+
+          if (foundType != null) {
+            p = p.addAchievement(foundType);
+          }
+        }
+      }
+    }
+
+    return p;
   }
 
   Future<void> _recordEvent(UserActivityEvent event) async {
@@ -185,18 +212,75 @@ class UserProgressNotifier extends AsyncNotifier<UserProgress> {
 
     // Recalculate state
     // We strictly rebuild from DB to ensure consistency
-    final newState = await _loadAndCalculateProgress();
+    var newState = await _loadAndCalculateProgress();
 
-    // Check achievements (with notification side-effect)
-    final checkedState = _checkAchievements(newState, state.value?.level);
+    // Scan for NEW achievements triggered by this event
+    final newAchievements = _scanForNewAchievements(newState);
+    if (newAchievements.isNotEmpty) {
+      await _persistAchievements(newAchievements, notify: true);
+      // Reload again to get the achievements into the state
+      newState = await _loadAndCalculateProgress();
+    }
 
-    state = AsyncValue.data(checkedState);
+    // Also check for Level Up
+    // We can compare against previous state if available, or just check logic.
+    // _scanForNewAchievements doesn't handle Level Up notification logic which
+    // was in _checkAchievements.
+    // We should probably include level up check here.
+    final oldLevel = state.value?.level;
+    if (oldLevel != null && newState.level > oldLevel) {
+      unawaited(
+        NotificationService().showNotification(
+          title: 'Level Up!',
+          body: 'Congratulations! You reached level ${newState.level}!',
+        ),
+      );
+    }
+
+    state = AsyncValue.data(newState);
 
     // We also save the calculated UserProgress as a "snapshot" for backup/easy view
-    await _db.userProgress.record(_userId).put(db, checkedState.toJson());
+    await _db.userProgress.record(_userId).put(db, newState.toJson());
     // And sync that snapshot too (optional, but good for admin view)
     if (user?.isGamificationEnabled ?? false) {
-      await ref.read(syncServiceProvider).syncUserProgress(checkedState);
+      await ref.read(syncServiceProvider).syncUserProgress(newState);
+    }
+  }
+
+  Future<void> _persistAchievements(
+    List<AchievementType> achievements, {
+    required bool notify,
+  }) async {
+    final user = ref.read(authProvider).value;
+    for (final type in achievements) {
+      final event = UserActivityEvent(
+        id: const Uuid().v4(),
+        userId: user?.id ?? _userId,
+        type: UserActivityType.achievementUnlocked,
+        xpEarned: 0,
+        occurredAt: DateTime.now(),
+        metadata: {'achievementId': type.name},
+      );
+
+      // Save locally
+      final db = await _db.database;
+      await _db.userActivityEvents.record(event.id).put(db, event.toJson());
+
+      // Sync
+      try {
+        await ref.read(syncServiceProvider).syncUserActivityEvent(event);
+      } on Exception catch (e) {
+        debugPrint('Failed to sync achievement event: $e');
+      }
+
+      if (notify) {
+        unawaited(
+          NotificationService().showNotification(
+            title: 'Achievement Unlocked!',
+            body: 'You earned: ${_getAchievementName(type)}',
+          ),
+        );
+      }
     }
   }
 
@@ -262,20 +346,7 @@ class UserProgressNotifier extends AsyncNotifier<UserProgress> {
     await _recordEvent(event);
   }
 
-  UserProgress _checkAchievements(UserProgress progress, int? oldLevel) {
-    var p = progress;
-    final currentLevel = p.level;
-
-    // Level up notification
-    if (oldLevel != null && currentLevel > oldLevel) {
-      unawaited(
-        NotificationService().showNotification(
-          title: 'Level Up!',
-          body: 'Congratulations! You reached level $currentLevel!',
-        ),
-      );
-    }
-
+  List<AchievementType> _scanForNewAchievements(UserProgress p) {
     final newAchievements = <AchievementType>[];
 
     void check({required AchievementType type, required bool condition}) {
@@ -311,17 +382,7 @@ class UserProgressNotifier extends AsyncNotifier<UserProgress> {
     check(type: AchievementType.weekStreak, condition: p.currentStreak >= 7);
     check(type: AchievementType.monthStreak, condition: p.currentStreak >= 30);
 
-    for (final type in newAchievements) {
-      p = p.addAchievement(type);
-      unawaited(
-        NotificationService().showNotification(
-          title: 'Achievement Unlocked!',
-          body: 'You earned: ${_getAchievementName(type)}',
-        ),
-      );
-    }
-
-    return p;
+    return newAchievements;
   }
 
   String _getAchievementName(AchievementType type) {

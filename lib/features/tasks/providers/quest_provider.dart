@@ -94,11 +94,10 @@ class QuestListState {
 
 /// Notifier for managing quest list state
 class QuestListNotifier extends AsyncNotifier<QuestListState> {
-  late final SembastService _db;
+  final SembastService _db = SembastService();
 
   @override
   Future<QuestListState> build() async {
-    _db = SembastService();
     return _loadQuests();
   }
 

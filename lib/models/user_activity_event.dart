@@ -4,6 +4,7 @@ enum UserActivityType {
   questCompleted,
   subQuestCompleted,
   focusSessionCompleted,
+  achievementUnlocked,
   manualAdjustment,
   legacyImport,
 }

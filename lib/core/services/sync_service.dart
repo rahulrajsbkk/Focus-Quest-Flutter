@@ -1,7 +1,12 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:focus_quest/core/services/firestore_service.dart';
 import 'package:focus_quest/features/auth/providers/auth_provider.dart';
+import 'package:focus_quest/features/journal/providers/journal_provider.dart';
+import 'package:focus_quest/features/profile/providers/user_progress_provider.dart';
+import 'package:focus_quest/features/tasks/providers/quest_provider.dart';
+import 'package:focus_quest/features/timer/providers/focus_session_provider.dart';
 import 'package:focus_quest/models/app_user.dart';
 import 'package:focus_quest/models/focus_session.dart';
 import 'package:focus_quest/models/journal_entry.dart';
@@ -18,9 +23,50 @@ class SyncService {
   final FirestoreService _firestore = FirestoreService();
   final SembastService _sembast = SembastService();
 
+  final List<StreamSubscription<dynamic>> _subscriptions = [];
+
   AppUser? get _currentUser => _ref.read(authProvider).value;
   bool get _isSyncEnabled => _currentUser?.isSyncEnabled ?? false;
   String? get _userId => _currentUser?.id;
+
+  /// Starts listening to Firestore streams for real-time updates.
+  void startRealTimeSync() {
+    stopRealTimeSync();
+
+    if (!_isSyncEnabled || _userId == null) return;
+    debugPrint('Starting real-time sync for user: $_userId');
+
+    _subscriptions
+      ..add(
+        _firestore.getQuestsStream(_userId!).listen(_handleIncomingQuests),
+      )
+      ..add(
+        _firestore
+            .getFocusSessionsStream(_userId!)
+            .listen(_handleIncomingFocusSessions),
+      )
+      ..add(
+        _firestore
+            .getJournalEntriesStream(_userId!)
+            .listen(_handleIncomingJournalEntries),
+      )
+      ..add(
+        _firestore
+            .getUserActivityEventsStream(_userId!)
+            .listen(_handleIncomingUserActivityEvents),
+      );
+  }
+
+  /// Stops all real-time sync subscriptions.
+  void stopRealTimeSync() {
+    if (_subscriptions.isNotEmpty) {
+      debugPrint('Stopping real-time sync.');
+      for (final sub in _subscriptions) {
+        unawaited(sub.cancel());
+      }
+      _subscriptions.clear();
+    }
+  }
 
   /// Syncs a quest to Firestore if sync is enabled.
   Future<void> syncQuest(Quest quest) async {
@@ -293,6 +339,96 @@ class SyncService {
       // So pushing local->remote is just for "viewing" purposes (admin, etc).
       await _firestore.saveUserProgress(_userId!, localProgress);
     }
+  }
+
+  Future<void> _handleIncomingQuests(List<Quest> remoteQuests) async {
+    debugPrint('Sync: Received ${remoteQuests.length} quests');
+    final db = await _sembast.database;
+    for (final remote in remoteQuests) {
+      final localRecord = await _sembast.quests.record(remote.id).get(db);
+      if (localRecord == null) {
+        await _sembast.quests.record(remote.id).put(db, remote.toJson());
+      } else {
+        final local = Quest.fromJson(localRecord);
+        if ((remote.updatedAt ?? remote.createdAt).isAfter(
+          local.updatedAt ?? local.createdAt,
+        )) {
+          await _sembast.quests.record(remote.id).put(db, remote.toJson());
+        }
+      }
+    }
+    _ref.invalidate(questListProvider);
+  }
+
+  Future<void> _handleIncomingFocusSessions(
+    List<FocusSession> remoteSessions,
+  ) async {
+    debugPrint('Sync: Received ${remoteSessions.length} sessions');
+    final db = await _sembast.database;
+    for (final remote in remoteSessions) {
+      final localRecord = await _sembast.focusSessions
+          .record(remote.id)
+          .get(db);
+      if (localRecord == null) {
+        await _sembast.focusSessions.record(remote.id).put(db, remote.toJson());
+      } else {
+        final local = FocusSession.fromJson(localRecord);
+        if ((remote.updatedAt ?? remote.startedAt).isAfter(
+          local.updatedAt ?? local.startedAt,
+        )) {
+          await _sembast.focusSessions
+              .record(remote.id)
+              .put(db, remote.toJson());
+        }
+      }
+    }
+    _ref.invalidate(focusSessionProvider);
+  }
+
+  Future<void> _handleIncomingJournalEntries(
+    List<JournalEntry> remoteEntries,
+  ) async {
+    debugPrint('Sync: Received ${remoteEntries.length} entries');
+    final db = await _sembast.database;
+    for (final remote in remoteEntries) {
+      final localRecord = await _sembast.journalEntries
+          .record(remote.id)
+          .get(db);
+      if (localRecord == null) {
+        await _sembast.journalEntries
+            .record(remote.id)
+            .put(db, remote.toJson());
+      } else {
+        final local = JournalEntry.fromJson(localRecord);
+        if ((remote.updatedAt ?? remote.createdAt).isAfter(
+          local.updatedAt ?? local.createdAt,
+        )) {
+          await _sembast.journalEntries
+              .record(remote.id)
+              .put(db, remote.toJson());
+        }
+      }
+    }
+    _ref.invalidate(journalProvider);
+  }
+
+  Future<void> _handleIncomingUserActivityEvents(
+    List<UserActivityEvent> remoteEvents,
+  ) async {
+    debugPrint('Sync: Received ${remoteEvents.length} events');
+    final db = await _sembast.database;
+    for (final remote in remoteEvents) {
+      final localRecord = await _sembast.userActivityEvents
+          .record(remote.id)
+          .get(db);
+      if (localRecord == null) {
+        await _sembast.userActivityEvents
+            .record(remote.id)
+            .put(db, remote.toJson());
+      }
+      // Events are immutable, so no need to update if exists
+    }
+    _ref.invalidate(userProgressProvider);
   }
 }
 

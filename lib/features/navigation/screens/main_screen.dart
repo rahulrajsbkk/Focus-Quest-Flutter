@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import 'package:focus_quest/core/services/haptic_service.dart';
 import 'package:focus_quest/core/services/sync_service.dart';
 import 'package:focus_quest/core/theme/app_colors.dart';
@@ -40,6 +41,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   Future<void> _initSync() async {
     final user = ref.read(authProvider).value;
     if (user != null && user.isSyncEnabled) {
+      ref.read(syncServiceProvider).startRealTimeSync();
       await ref.read(syncServiceProvider).performFullSync();
       // Invalidate providers to force reload from Sembast
       ref
@@ -98,6 +100,17 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       )
       ..listen<int>(navigationProvider, (previous, next) {
         _updateSystemUI(next, ref.read(focusSessionProvider).isPowerSaving);
+      })
+      ..listen(authProvider, (previous, next) {
+        final prevUser = previous?.value;
+        final nextUser = next.value;
+        if ((nextUser?.isSyncEnabled ?? false) &&
+            !(prevUser?.isSyncEnabled ?? false)) {
+          ref.read(syncServiceProvider).startRealTimeSync();
+        } else if (!(nextUser?.isSyncEnabled ?? false) &&
+            (prevUser?.isSyncEnabled ?? false)) {
+          ref.read(syncServiceProvider).stopRealTimeSync();
+        }
       });
 
     return Scaffold(
