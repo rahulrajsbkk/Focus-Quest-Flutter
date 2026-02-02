@@ -34,6 +34,24 @@ class AuthNotifier extends AsyncNotifier<AppUser?> {
     });
   }
 
+  Future<void> signInWithEmailPassword(String email, String password) async {
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(() async {
+      return _authService.signInWithEmailPassword(email, password);
+    });
+  }
+
+  Future<void> signUpWithEmailPassword(
+    String email,
+    String password,
+    String name,
+  ) async {
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(() async {
+      return _authService.signUpWithEmailPassword(email, password, name);
+    });
+  }
+
   Future<void> signOut() async {
     state = const AsyncValue.loading();
     await _authService.signOut();

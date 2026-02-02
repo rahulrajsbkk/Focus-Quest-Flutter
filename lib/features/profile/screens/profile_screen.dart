@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:focus_quest/core/services/sync_service.dart';
+import 'package:focus_quest/features/auth/presentation/widgets/email_auth_form.dart';
 import 'package:focus_quest/features/auth/providers/auth_provider.dart';
 import 'package:focus_quest/features/journal/providers/journal_provider.dart';
 import 'package:focus_quest/features/profile/providers/user_progress_provider.dart';
@@ -95,7 +96,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 48),
-            _buildGoogleSignInButton(),
+            // _buildGoogleSignInButton(),
+            const SizedBox(height: 16),
+            _buildEmailSignInButton(context),
             const SizedBox(height: 24),
             Row(
               children: [
@@ -128,7 +131,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     );
   }
 
-  Widget _buildGoogleSignInButton() {
+  /* Widget _buildGoogleSignInButton() {
     return SizedBox(
       width: double.infinity,
       height: 56,
@@ -184,9 +187,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         ),
       ),
     );
-  }
+  } */
 
-  String _getErrorMessage(String error) {
+  /* String _getErrorMessage(String error) {
     if (error.contains('network') || error.contains('Network')) {
       return 'Network error. Please check your internet connection.';
     } else if (error.contains('popup_blocked')) {
@@ -196,7 +199,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     } else {
       return 'Sign-in failed. Please try again later.';
     }
-  }
+  } */
 
   Widget _buildGuestSignUpButton(BuildContext context) {
     return SizedBox(
@@ -262,6 +265,49 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             child: const Text('Start Quest'),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildEmailSignInButton(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 56,
+      child: OutlinedButton.icon(
+        onPressed: () => unawaited(_showEmailAuthSheet(context)),
+        icon: const Icon(Icons.email_outlined),
+        label: const Text(
+          'Continue with Email',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        style: OutlinedButton.styleFrom(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          side: BorderSide(
+            color: Theme.of(context).dividerColor,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showEmailAuthSheet(BuildContext context) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: EmailAuthForm(
+          onSuccess: () {
+            Navigator.pop(context);
+          },
+        ),
       ),
     );
   }
@@ -539,38 +585,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
                           content: Text(
-                            'Sign in with Google to enable sync & backup',
+                            'Sign in with Email to enable sync & backup',
                           ),
                         ),
                       );
 
-                      final notifier = ref.read(authProvider.notifier);
-                      await notifier.signInWithGoogle();
-
-                      // Check if sign-in failed (but ignore cancellation)
-                      if (!mounted) return;
-                      ref
-                          .read(authProvider)
-                          .whenOrNull(
-                            error: (error, stack) {
-                              final errorMsg = error.toString();
-                              if (errorMsg.contains('canceled') ||
-                                  errorMsg.contains('cancelled')) {
-                                return;
-                              }
-
-                              if (mounted) {
-                                ScaffoldMessenger.of(context)
-                                  ..hideCurrentSnackBar()
-                                  ..showSnackBar(
-                                    SnackBar(
-                                      content: Text(_getErrorMessage(errorMsg)),
-                                      backgroundColor: Colors.red,
-                                    ),
-                                  );
-                              }
-                            },
-                          );
+                      // Show email auth sheet instead of Google Sign In
+                      await _showEmailAuthSheet(context);
                     } else {
                       await ref
                           .read(authProvider.notifier)

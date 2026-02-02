@@ -118,6 +118,48 @@ class AuthService {
     }
   }
 
+  Future<AppUser> signInWithEmailPassword(String email, String password) async {
+    try {
+      final userCredential = await _auth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+      final user = userCredential.user!;
+      await _prefs.remove(_kGuestUserKey);
+      return _firebaseToAppUser(user);
+    } on FirebaseAuthException catch (e) {
+      throw Exception('Firebase Auth error: ${e.message}');
+    }
+  }
+
+  Future<AppUser> signUpWithEmailPassword(
+    String email,
+    String password,
+    String name,
+  ) async {
+    try {
+      final userCredential = await _auth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+      final user = userCredential.user!;
+      await user.updateDisplayName(name);
+      await user.reload();
+      // Get the updated user object
+      final updatedUser = _auth.currentUser ?? user;
+
+      await _prefs.remove(_kGuestUserKey);
+      final appUser = _firebaseToAppUser(updatedUser);
+
+      // Create initial user document in Firestore
+      await updateLocalUser(appUser);
+
+      return appUser;
+    } on FirebaseAuthException catch (e) {
+      throw Exception('Firebase Auth error: ${e.message}');
+    }
+  }
+
   Future<AppUser> createGuestSession(String name, String avatarUrl) async {
     final guest = AppUser.guest(name: name, avatarUrl: avatarUrl);
     await _prefs.setString(_kGuestUserKey, jsonEncode(guest.toJson()));
