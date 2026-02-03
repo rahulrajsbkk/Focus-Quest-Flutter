@@ -9,6 +9,7 @@ import 'package:focus_quest/features/auth/presentation/widgets/email_auth_form.d
 import 'package:focus_quest/features/auth/providers/auth_provider.dart';
 import 'package:focus_quest/features/journal/providers/journal_provider.dart';
 import 'package:focus_quest/features/profile/providers/user_progress_provider.dart';
+import 'package:focus_quest/features/profile/widgets/activity_heatmap.dart';
 import 'package:focus_quest/features/tasks/providers/quest_provider.dart';
 import 'package:focus_quest/features/timer/providers/focus_session_provider.dart';
 import 'package:focus_quest/models/app_user.dart';
@@ -328,6 +329,27 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             _buildHeader(context, user),
             if (user.isGamificationEnabled) _buildStatsOverview(context),
             const SizedBox(height: 24),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      'ACTIVITY',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.2,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ),
+                  const ActivityHeatmap(),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
             _buildSettingsSection(context, user),
             const SizedBox(height: 48),
             Center(
@@ -563,7 +585,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.only(left: 4, bottom: 12),
+            padding: const EdgeInsets.only(bottom: 12),
             child: Text(
               'SETTINGS',
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
@@ -574,6 +596,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             ),
           ),
           Card(
+            elevation: 6,
             margin: EdgeInsets.zero,
             child: Column(
               children: [
