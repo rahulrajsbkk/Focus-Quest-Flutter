@@ -456,14 +456,22 @@ class Quest {
   /// Returns the effective status for a specific date key.
   QuestStatus statusForDate(DateTime date) {
     if (repeatFrequency == RepeatFrequency.daily) {
-      if (status == QuestStatus.completed && lastCompletedAt != null) {
-        return _isSameDay(lastCompletedAt!, date)
-            ? QuestStatus.completed
-            : QuestStatus.pending;
+      // Check if this date has a completion entry in the history
+      final dateKey = _formatDateKey(date);
+      if (completionNotes.containsKey(dateKey)) {
+        return QuestStatus.completed;
       }
       return QuestStatus.pending;
     }
     return status;
+  }
+
+  /// Formats a date as a key string (YYYY-MM-DD) for completionNotes lookup.
+  String _formatDateKey(DateTime date) {
+    final y = date.year;
+    final m = date.month.toString().padLeft(2, '0');
+    final d = date.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
   }
 
   /// Calculates the current streak based on completionNotes.
