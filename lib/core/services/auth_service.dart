@@ -16,12 +16,9 @@ class AuthService {
   // The instance is ready to use immediately
 
   Stream<AppUser?> get authStateChanges async* {
-    // Combine Firebase auth changes with local guest checks
-    // This simple implementation checks firebase stream.
-    // Handling guest + firebase stream is tricky.
-    // Instead, we will rely on the provider to rebuild when notify is called.
-    // But we can yield the current state initially.
-
+    // Yields the current user once, then forwards Firebase auth changes
+    // mapped to AppUser. Guest sessions live in SharedPreferences and are
+    // observed via _getGuestUser() on Firebase emissions.
     yield await getCurrentUser();
 
     await for (final user in _auth.authStateChanges()) {
@@ -31,6 +28,19 @@ class AuthService {
         // If firebase user is null, check for guest
         final guest = await _getGuestUser();
         yield guest;
+      }
+    }
+  }
+
+  /// Stream that fires only when Firebase auth state changes (token expiry,
+  /// external sign-out from another tab, admin disable). Does NOT yield the
+  /// initial value — subscribe to [authStateChanges] for that.
+  Stream<AppUser?> get firebaseAuthStateChanges async* {
+    await for (final user in _auth.authStateChanges()) {
+      if (user != null) {
+        yield _firebaseToAppUser(user);
+      } else {
+        yield await _getGuestUser();
       }
     }
   }
@@ -76,7 +86,9 @@ class AuthService {
           final userCredential = await _auth.signInWithCredential(credential);
           final firebaseUser = userCredential.user!;
           await _prefs.remove(_kGuestUserKey);
-          return _firebaseToAppUser(firebaseUser);
+          final appUser = _firebaseToAppUser(firebaseUser);
+          await _ensureUserDoc(appUser);
+          return appUser;
         } else {
           // On web, authenticate() is not supported
           // User must use the sign-in button widget or FedCM flow
@@ -108,7 +120,9 @@ class AuthService {
       // Clear guest user if exists
       await _prefs.remove(_kGuestUserKey);
 
-      return _firebaseToAppUser(user);
+      final appUser = _firebaseToAppUser(user);
+      await _ensureUserDoc(appUser);
+      return appUser;
     } on GoogleSignInException catch (e) {
       throw Exception('Google Sign-In error: ${e.code} - ${e.description}');
     } on FirebaseAuthException catch (e) {
@@ -126,7 +140,9 @@ class AuthService {
       );
       final user = userCredential.user!;
       await _prefs.remove(_kGuestUserKey);
-      return _firebaseToAppUser(user);
+      final appUser = _firebaseToAppUser(user);
+      await _ensureUserDoc(appUser);
+      return appUser;
     } on FirebaseAuthException catch (e) {
       throw Exception('Firebase Auth error: ${e.message}');
     }
@@ -184,6 +200,18 @@ class AuthService {
     } else {
       // For signed in users, save to Firestore
       await _firestore.saveUser(user);
+    }
+  }
+
+  /// Best-effort Firestore user-doc upsert. We intentionally swallow errors
+  /// here so a transient Firestore failure during sign-in does not block the
+  /// user from entering the app — the doc will be re-upserted on the next
+  /// settings change or sync.
+  Future<void> _ensureUserDoc(AppUser user) async {
+    try {
+      await _firestore.saveUser(user);
+    } on Object {
+      // Logged inside FirestoreService.
     }
   }
 

@@ -7,6 +7,12 @@ import 'package:focus_quest/models/quest.dart';
 import 'package:focus_quest/models/user_activity_event.dart';
 import 'package:focus_quest/models/user_progress.dart';
 
+/// Field used to carry a server-side timestamp alongside the client ISO
+/// string in [Quest]/[FocusSession]/[JournalEntry] etc. Conflict resolution
+/// in the sync layer prefers this value over the client-supplied `updatedAt`
+/// because it removes client-clock skew from the equation.
+const String _serverUpdatedAtField = '_serverUpdatedAt';
+
 class FirestoreService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
@@ -14,10 +20,15 @@ class FirestoreService {
 
   Future<void> saveUser(AppUser user) async {
     if (user.isGuest) return;
-    await _firestore
-        .collection('users')
-        .doc(user.id)
-        .set(user.toJson(), SetOptions(merge: true));
+    try {
+      await _firestore
+          .collection('users')
+          .doc(user.id)
+          .set(_withServerTimestamp(user.toJson()), SetOptions(merge: true));
+    } on Object catch (e) {
+      debugPrint('Firestore.saveUser error: $e');
+      rethrow;
+    }
   }
 
   Future<AppUser?> getUser(String userId) async {
@@ -34,7 +45,7 @@ class FirestoreService {
         .doc(userId)
         .collection('quests')
         .doc(quest.id)
-        .set(quest.toJson());
+        .set(_withServerTimestamp(quest.toJson()), SetOptions(merge: true));
   }
 
   Future<List<Quest>> getQuests(String userId) async {
@@ -44,14 +55,7 @@ class FirestoreService {
         .collection('quests')
         .get();
     return snapshot.docs
-        .map((doc) {
-          try {
-            return Quest.fromJson(doc.data());
-          } on Exception catch (e) {
-            debugPrint('Error parsing quest ${doc.id}: $e');
-            return null;
-          }
-        })
+        .map((doc) => _parseDoc(doc.id, doc.data(), Quest.fromJson, 'quest'))
         .whereType<Quest>()
         .toList();
   }
@@ -62,19 +66,14 @@ class FirestoreService {
         .doc(userId)
         .collection('quests')
         .snapshots()
-        .map((snapshot) {
-          return snapshot.docs
-              .map((doc) {
-                try {
-                  return Quest.fromJson(doc.data());
-                } on Exception catch (e) {
-                  debugPrint('Error parsing quest ${doc.id}: $e');
-                  return null;
-                }
-              })
+        .map(
+          (snapshot) => snapshot.docs
+              .map(
+                (doc) => _parseDoc(doc.id, doc.data(), Quest.fromJson, 'quest'),
+              )
               .whereType<Quest>()
-              .toList();
-        });
+              .toList(),
+        );
   }
 
   Future<void> deleteQuest(String userId, String questId) async {
@@ -94,7 +93,16 @@ class FirestoreService {
         .doc(userId)
         .collection('focus_sessions')
         .doc(session.id)
-        .set(session.toJson());
+        .set(_withServerTimestamp(session.toJson()), SetOptions(merge: true));
+  }
+
+  Future<void> deleteFocusSession(String userId, String sessionId) async {
+    await _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('focus_sessions')
+        .doc(sessionId)
+        .delete();
   }
 
   Future<List<FocusSession>> getFocusSessions(String userId) async {
@@ -104,14 +112,10 @@ class FirestoreService {
         .collection('focus_sessions')
         .get();
     return snapshot.docs
-        .map((doc) {
-          try {
-            return FocusSession.fromJson(doc.data());
-          } on Exception catch (e) {
-            debugPrint('Error parsing session ${doc.id}: $e');
-            return null;
-          }
-        })
+        .map(
+          (doc) =>
+              _parseDoc(doc.id, doc.data(), FocusSession.fromJson, 'session'),
+        )
         .whereType<FocusSession>()
         .toList();
   }
@@ -122,19 +126,19 @@ class FirestoreService {
         .doc(userId)
         .collection('focus_sessions')
         .snapshots()
-        .map((snapshot) {
-          return snapshot.docs
-              .map((doc) {
-                try {
-                  return FocusSession.fromJson(doc.data());
-                } on Exception catch (e) {
-                  debugPrint('Error parsing session ${doc.id}: $e');
-                  return null;
-                }
-              })
+        .map(
+          (snapshot) => snapshot.docs
+              .map(
+                (doc) => _parseDoc(
+                  doc.id,
+                  doc.data(),
+                  FocusSession.fromJson,
+                  'session',
+                ),
+              )
               .whereType<FocusSession>()
-              .toList();
-        });
+              .toList(),
+        );
   }
 
   // MARK: - Journal Entries
@@ -145,7 +149,16 @@ class FirestoreService {
         .doc(userId)
         .collection('journal_entries')
         .doc(entry.id)
-        .set(entry.toJson());
+        .set(_withServerTimestamp(entry.toJson()), SetOptions(merge: true));
+  }
+
+  Future<void> deleteJournalEntry(String userId, String entryId) async {
+    await _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('journal_entries')
+        .doc(entryId)
+        .delete();
   }
 
   Future<List<JournalEntry>> getJournalEntries(String userId) async {
@@ -155,14 +168,10 @@ class FirestoreService {
         .collection('journal_entries')
         .get();
     return snapshot.docs
-        .map((doc) {
-          try {
-            return JournalEntry.fromJson(doc.data());
-          } on Exception catch (e) {
-            debugPrint('Error parsing entry ${doc.id}: $e');
-            return null;
-          }
-        })
+        .map(
+          (doc) =>
+              _parseDoc(doc.id, doc.data(), JournalEntry.fromJson, 'entry'),
+        )
         .whereType<JournalEntry>()
         .toList();
   }
@@ -173,19 +182,19 @@ class FirestoreService {
         .doc(userId)
         .collection('journal_entries')
         .snapshots()
-        .map((snapshot) {
-          return snapshot.docs
-              .map((doc) {
-                try {
-                  return JournalEntry.fromJson(doc.data());
-                } on Exception catch (e) {
-                  debugPrint('Error parsing entry ${doc.id}: $e');
-                  return null;
-                }
-              })
+        .map(
+          (snapshot) => snapshot.docs
+              .map(
+                (doc) => _parseDoc(
+                  doc.id,
+                  doc.data(),
+                  JournalEntry.fromJson,
+                  'entry',
+                ),
+              )
               .whereType<JournalEntry>()
-              .toList();
-        });
+              .toList(),
+        );
   }
 
   // MARK: - User Progress
@@ -196,7 +205,7 @@ class FirestoreService {
         .doc(userId)
         .collection('progress')
         .doc('current')
-        .set(progress.toJson());
+        .set(_withServerTimestamp(progress.toJson()), SetOptions(merge: true));
   }
 
   Future<UserProgress?> getUserProgress(String userId) async {
@@ -207,7 +216,7 @@ class FirestoreService {
         .doc('current')
         .get();
     if (!doc.exists) return null;
-    return UserProgress.fromJson(doc.data()!);
+    return UserProgress.fromJson(_stripInternalFields(doc.data()!));
   }
 
   // MARK: - User Activity Events
@@ -221,7 +230,7 @@ class FirestoreService {
         .doc(userId)
         .collection('activity_events')
         .doc(event.id)
-        .set(event.toJson());
+        .set(_withServerTimestamp(event.toJson()), SetOptions(merge: true));
   }
 
   Future<List<UserActivityEvent>> getUserActivityEvents(String userId) async {
@@ -233,14 +242,14 @@ class FirestoreService {
         .get();
 
     return snapshot.docs
-        .map((doc) {
-          try {
-            return UserActivityEvent.fromJson(doc.data());
-          } on Exception catch (e) {
-            debugPrint('Error parsing activity event ${doc.id}: $e');
-            return null;
-          }
-        })
+        .map(
+          (doc) => _parseDoc(
+            doc.id,
+            doc.data(),
+            UserActivityEvent.fromJson,
+            'activity event',
+          ),
+        )
         .whereType<UserActivityEvent>()
         .toList();
   }
@@ -252,18 +261,64 @@ class FirestoreService {
         .collection('activity_events')
         .orderBy('occurredAt', descending: true)
         .snapshots()
-        .map((snapshot) {
-          return snapshot.docs
-              .map((doc) {
-                try {
-                  return UserActivityEvent.fromJson(doc.data());
-                } on Exception catch (e) {
-                  debugPrint('Error parsing activity event ${doc.id}: $e');
-                  return null;
-                }
-              })
+        .map(
+          (snapshot) => snapshot.docs
+              .map(
+                (doc) => _parseDoc(
+                  doc.id,
+                  doc.data(),
+                  UserActivityEvent.fromJson,
+                  'activity event',
+                ),
+              )
               .whereType<UserActivityEvent>()
-              .toList();
-        });
+              .toList(),
+        );
+  }
+
+  // MARK: - Helpers
+
+  /// Adds a Firestore server timestamp under [_serverUpdatedAtField]. This
+  /// gives sync conflict resolution a clock that does not depend on the
+  /// originating device.
+  Map<String, dynamic> _withServerTimestamp(Map<String, dynamic> json) {
+    return {
+      ...json,
+      _serverUpdatedAtField: FieldValue.serverTimestamp(),
+    };
+  }
+
+  /// Promotes the server timestamp into the model's `updatedAt` field when
+  /// it is more recent than the client-supplied one, and strips internal
+  /// fields before deserialization.
+  T? _parseDoc<T>(
+    String docId,
+    Map<String, dynamic>? raw,
+    T Function(Map<String, dynamic>) fromJson,
+    String label,
+  ) {
+    if (raw == null) return null;
+    try {
+      return fromJson(_stripInternalFields(raw));
+    } on Object catch (e) {
+      // L2: log to debug for now; production builds should pipe this into
+      // Crashlytics/Sentry once an error reporter is wired up.
+      debugPrint('Error parsing $label $docId: $e');
+      return null;
+    }
+  }
+
+  Map<String, dynamic> _stripInternalFields(Map<String, dynamic> raw) {
+    final data = Map<String, dynamic>.from(raw);
+    final serverTs = data.remove(_serverUpdatedAtField);
+    if (serverTs is Timestamp) {
+      final serverIso = serverTs.toDate().toIso8601String();
+      final clientUpdatedAt = data['updatedAt'] as String?;
+      if (clientUpdatedAt == null ||
+          clientUpdatedAt.compareTo(serverIso) < 0) {
+        data['updatedAt'] = serverIso;
+      }
+    }
+    return data;
   }
 }

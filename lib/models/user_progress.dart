@@ -208,6 +208,7 @@ class UserProgress {
   /// Converts to JSON.
   Map<String, dynamic> toJson() {
     return {
+      'schemaVersion': 1,
       'id': id,
       'totalXp': totalXp,
       'questsCompleted': questsCompleted,

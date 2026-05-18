@@ -5,14 +5,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:focus_quest/core/services/haptic_service.dart';
-import 'package:focus_quest/core/services/sync_service.dart';
 import 'package:focus_quest/core/theme/app_colors.dart';
-import 'package:focus_quest/features/auth/providers/auth_provider.dart';
 import 'package:focus_quest/features/calendar/screens/calendar_screen.dart';
-import 'package:focus_quest/features/journal/providers/journal_provider.dart';
 import 'package:focus_quest/features/journal/screens/daily_reflection_screen.dart';
 import 'package:focus_quest/features/navigation/providers/navigation_provider.dart';
-import 'package:focus_quest/features/profile/providers/user_progress_provider.dart';
 import 'package:focus_quest/features/profile/screens/profile_screen.dart';
 import 'package:focus_quest/features/tasks/providers/date_provider.dart';
 import 'package:focus_quest/features/tasks/providers/quest_provider.dart';
@@ -30,27 +26,9 @@ class MainScreen extends ConsumerStatefulWidget {
 }
 
 class _MainScreenState extends ConsumerState<MainScreen> {
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_initSync());
-    });
-  }
-
-  Future<void> _initSync() async {
-    final user = ref.read(authProvider).value;
-    if (user != null && user.isSyncEnabled) {
-      ref.read(syncServiceProvider).startRealTimeSync();
-      await ref.read(syncServiceProvider).performFullSync();
-      // Invalidate providers to force reload from Sembast
-      ref
-        ..invalidate(questListProvider)
-        ..invalidate(focusSessionProvider)
-        ..invalidate(journalProvider)
-        ..invalidate(userProgressProvider);
-    }
-  }
+  // Auth-driven sync bootstrap and user-transition handling now live in
+  // AuthNotifier (see lib/features/auth/providers/auth_provider.dart). No
+  // per-screen init/listener is needed here.
 
   final List<Widget> _screens = [
     const HomeScreen(),
@@ -100,17 +78,6 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       )
       ..listen<int>(navigationProvider, (previous, next) {
         _updateSystemUI(next, ref.read(focusSessionProvider).isPowerSaving);
-      })
-      ..listen(authProvider, (previous, next) {
-        final prevUser = previous?.value;
-        final nextUser = next.value;
-        if ((nextUser?.isSyncEnabled ?? false) &&
-            !(prevUser?.isSyncEnabled ?? false)) {
-          ref.read(syncServiceProvider).startRealTimeSync();
-        } else if (!(nextUser?.isSyncEnabled ?? false) &&
-            (prevUser?.isSyncEnabled ?? false)) {
-          ref.read(syncServiceProvider).stopRealTimeSync();
-        }
       });
 
     return Scaffold(

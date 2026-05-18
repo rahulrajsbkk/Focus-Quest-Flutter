@@ -1,21 +1,22 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:focus_quest/core/database/database_helper.dart';
 import 'package:sembast/sembast.dart';
 
-/// Central Sembast database service with lazy initialization,
-/// singleton pattern, and corruption recovery.
+/// Central Sembast database service with lazy, **per-user** initialization.
 ///
-/// Provides access to all application stores for persistent data.
+/// Each signed-in user (and each guest session) gets an isolated database
+/// file (`focus_quest_<uid>.db`). Switching users closes/opens the correct
+/// file so local data never leaks across accounts.
 class SembastService {
   factory SembastService() => _instance;
   SembastService._();
 
   static final SembastService _instance = SembastService._();
 
-  static const String _dbName = 'focus_quest.db';
-
-  Database? _database;
-  bool _isInitializing = false;
+  static const String _anonymousUid = '__anonymous__';
+  static const String _dbPrefix = 'focus_quest';
+  static const String _dbExtension = '.db';
 
   /// Store definitions
   final StoreRef<String, Map<String, Object?>> quests = stringMapStoreFactory
@@ -36,69 +37,101 @@ class SembastService {
   final StoreRef<String, Map<String, Object?>> userActivityEvents =
       stringMapStoreFactory.store('userActivityEvents');
 
-  /// Returns the database instance, initializing it lazily if needed.
+  /// Outbox of pending sync operations (retry queue for offline edits).
+  final StoreRef<String, Map<String, Object?>> outbox = stringMapStoreFactory
+      .store('outbox');
+
+  /// Open databases keyed by uid. We keep them open across switches so
+  /// switching back to a previous user is cheap.
+  final Map<String, Database> _openDatabases = {};
+
+  String _activeUid = _anonymousUid;
+  Database? _testDatabase;
+  Completer<Database>? _opening;
+
+  /// Current active user id (or `__anonymous__` if signed out).
+  String get activeUid => _activeUid;
+
+  /// Switches the active user. The corresponding database is opened lazily
+  /// on the next [database] access. No-op when [uid] matches the current one.
+  Future<void> setActiveUser(String? uid) async {
+    final newUid = (uid == null || uid.isEmpty) ? _anonymousUid : uid;
+    if (newUid == _activeUid) return;
+    debugPrint('SembastService: switching active user → $newUid');
+    _activeUid = newUid;
+  }
+
+  /// Returns the database for the currently active user.
   Future<Database> get database async {
-    if (_database != null) return _database!;
+    if (_testDatabase != null) return _testDatabase!;
 
-    // Prevent multiple simultaneous initialization attempts
-    if (_isInitializing) {
-      // Wait for initialization to complete
-      while (_isInitializing) {
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-      }
-      return _database!;
-    }
+    final uid = _activeUid;
+    final existing = _openDatabases[uid];
+    if (existing != null) return existing;
 
-    _isInitializing = true;
+    // Coalesce concurrent opens of the same db.
+    if (_opening != null) return _opening!.future;
+    final completer = Completer<Database>();
+    _opening = completer;
     try {
-      _database = await _openDatabase();
-      return _database!;
+      final db = await openAppDatabase(_fileNameFor(uid));
+      _openDatabases[uid] = db;
+      completer.complete(db);
+      return db;
+    } on Object catch (e, s) {
+      completer.completeError(e, s);
+      rethrow;
     } finally {
-      _isInitializing = false;
+      _opening = null;
     }
   }
 
-  /// Opens the database using the platform-specific helper.
-  Future<Database> _openDatabase() async {
-    return openAppDatabase(_dbName);
-  }
+  String _fileNameFor(String uid) => '${_dbPrefix}_$uid$_dbExtension';
 
-  /// Checks if the database has been initialized.
-  bool get isInitialized => _database != null;
+  /// Whether a database is currently open for the active user (or in tests).
+  bool get isInitialized =>
+      _testDatabase != null || _openDatabases.containsKey(_activeUid);
 
-  /// Closes the database connection.
-  ///
-  /// Useful for testing or when the app is being destroyed.
+  /// Closes all open databases.
   Future<void> close() async {
-    await _database?.close();
-    _database = null;
+    if (_testDatabase != null) {
+      await _testDatabase!.close();
+      _testDatabase = null;
+      return;
+    }
+    for (final db in _openDatabases.values) {
+      await db.close();
+    }
+    _openDatabases.clear();
   }
 
-  /// Resets the database by deleting all data.
-  ///
-  /// This is a destructive operation - use with caution.
+  /// Closes (and evicts) the database for the given uid.
+  Future<void> closeUser(String? uid) async {
+    final key = (uid == null || uid.isEmpty) ? _anonymousUid : uid;
+    final db = _openDatabases.remove(key);
+    await db?.close();
+  }
+
+  /// Deletes the active user's database file. Use on sign-out cleanup
+  /// when the user's local data should not survive on this device.
   Future<void> reset() async {
-    // Close existing connection
-    await close();
-
-    // Delete the database using platform-specific helper
-    await deleteAppDatabase(_dbName);
-
-    // Database will be recreated on next access
-    debugPrint('SembastService: Database reset complete.');
+    final uid = _activeUid;
+    final db = _openDatabases.remove(uid);
+    await db?.close();
+    await deleteAppDatabase(_fileNameFor(uid));
+    debugPrint('SembastService: database reset for $uid.');
   }
 
-  /// Gets the raw database reference for testing purposes.
   @visibleForTesting
-  Database? get databaseForTesting => _database;
+  Database? get databaseForTesting => _testDatabase;
 
-  /// Injects a database for testing purposes.
   @visibleForTesting
-  set databaseForTesting(Database db) => _database = db;
+  set databaseForTesting(Database? db) => _testDatabase = db;
 
-  /// Clears the database reference for testing purposes.
   @visibleForTesting
   void clearForTesting() {
-    _database = null;
+    _testDatabase = null;
+    _openDatabases.clear();
+    _activeUid = _anonymousUid;
   }
 }

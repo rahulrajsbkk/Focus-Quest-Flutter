@@ -252,6 +252,7 @@ class Quest {
   /// Converts the Quest to a JSON map.
   Map<String, dynamic> toJson() {
     return {
+      'schemaVersion': 1,
       'id': id,
       'title': title,
       'description': description,

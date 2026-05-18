@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:focus_quest/core/services/notification_service.dart';
 import 'package:focus_quest/core/services/sync_service.dart';
 import 'package:focus_quest/features/auth/providers/auth_provider.dart';
+import 'package:focus_quest/models/app_user.dart';
 import 'package:focus_quest/models/user_activity_event.dart';
 import 'package:focus_quest/models/user_progress.dart';
 import 'package:focus_quest/services/sembast_service.dart';
@@ -13,11 +14,20 @@ import 'package:uuid/uuid.dart';
 
 class UserProgressNotifier extends AsyncNotifier<UserProgress> {
   final SembastService _db = SembastService();
-  static const String _userId = 'default_user';
+
+  /// Local sembast key for the cached progress snapshot. Matches the
+  /// Firestore doc id (`users/<uid>/progress/current`).
+  static const String _localKey = 'current';
+
+  AppUser? get _user => ref.read(authProvider).value;
+
+  String get _ownerId => _user?.id ?? 'anonymous';
+
+  bool get _gamificationEnabled => _user?.isGamificationEnabled ?? false;
 
   @override
   Future<UserProgress> build() async {
-    // 1. Load basic state from events
+    // 1. Load basic state from events (scoped to the active user's DB).
     final progress = await _loadAndCalculateProgress();
 
     // 2. Silent backfill of achievements not yet recorded as events
@@ -35,21 +45,19 @@ class UserProgressNotifier extends AsyncNotifier<UserProgress> {
   Future<UserProgress> _loadAndCalculateProgress() async {
     final db = await _db.database;
 
-    // Load all events
+    // Load all events (already user-scoped because the DB itself is
+    // per-user).
     final records = await _db.userActivityEvents.find(db);
     final events = records
         .map((r) => UserActivityEvent.fromJson(r.value))
         .toList();
 
-    // Calculate state from events
-    final progress = UserProgress.initial(id: _userId);
+    final progress = UserProgress.initial(id: _ownerId);
 
-    // If no events, return initial
     if (events.isEmpty) {
       return progress;
     }
 
-    // Sort events by date (oldest first) to replay history
     events.sort((a, b) => a.occurredAt.compareTo(b.occurredAt));
 
     return _calculateProgress(progress, events);
@@ -160,7 +168,6 @@ class UserProgressNotifier extends AsyncNotifier<UserProgress> {
     }
 
     // Update Progress Object
-    // Update Progress Object
     p = p.copyWith(
       totalXp: totalXp,
       questsCompleted: quests,
@@ -198,12 +205,11 @@ class UserProgressNotifier extends AsyncNotifier<UserProgress> {
 
   Future<void> _recordEvent(UserActivityEvent event) async {
     final db = await _db.database;
-    final user = ref.read(authProvider).value;
 
     // Save locally
     await _db.userActivityEvents.record(event.id).put(db, event.toJson());
 
-    // Sync immediately
+    // Sync immediately (goes via outbox; safe even if offline).
     try {
       await ref.read(syncServiceProvider).syncUserActivityEvent(event);
     } on Exception catch (e) {
@@ -222,11 +228,7 @@ class UserProgressNotifier extends AsyncNotifier<UserProgress> {
       newState = await _loadAndCalculateProgress();
     }
 
-    // Also check for Level Up
-    // We can compare against previous state if available, or just check logic.
-    // _scanForNewAchievements doesn't handle Level Up notification logic which
-    // was in _checkAchievements.
-    // We should probably include level up check here.
+    // Level-up notification.
     final oldLevel = state.value?.level;
     if (oldLevel != null && newState.level > oldLevel) {
       unawaited(
@@ -239,10 +241,11 @@ class UserProgressNotifier extends AsyncNotifier<UserProgress> {
 
     state = AsyncValue.data(newState);
 
-    // We also save the calculated UserProgress as a "snapshot" for backup/easy view
-    await _db.userProgress.record(_userId).put(db, newState.toJson());
-    // And sync that snapshot too (optional, but good for admin view)
-    if (user?.isGamificationEnabled ?? false) {
+    // Persist the snapshot locally for fast cold-start reads. (M4: we no
+    // longer push it via full sync — only event-driven pushes happen here,
+    // and only when gamification is enabled.)
+    await _db.userProgress.record(_localKey).put(db, newState.toJson());
+    if (_gamificationEnabled) {
       await ref.read(syncServiceProvider).syncUserProgress(newState);
     }
   }
@@ -251,11 +254,10 @@ class UserProgressNotifier extends AsyncNotifier<UserProgress> {
     List<AchievementType> achievements, {
     required bool notify,
   }) async {
-    final user = ref.read(authProvider).value;
     for (final type in achievements) {
       final event = UserActivityEvent(
         id: const Uuid().v4(),
-        userId: user?.id ?? _userId,
+        userId: _ownerId,
         type: UserActivityType.achievementUnlocked,
         xpEarned: 0,
         occurredAt: DateTime.now(),
@@ -285,12 +287,13 @@ class UserProgressNotifier extends AsyncNotifier<UserProgress> {
   }
 
   Future<void> addXp(int xp) async {
-    final user = ref.read(authProvider).value;
-    if (user?.isGamificationEnabled == false) return;
+    // M5: gamification toggle gates *generation* of events. If a user opts
+    // out, we don't produce events at all.
+    if (!_gamificationEnabled) return;
 
     final event = UserActivityEvent(
       id: const Uuid().v4(),
-      userId: user?.id ?? _userId,
+      userId: _ownerId,
       type: UserActivityType.manualAdjustment,
       xpEarned: xp,
       occurredAt: DateTime.now(),
@@ -304,15 +307,14 @@ class UserProgressNotifier extends AsyncNotifier<UserProgress> {
     String? questId,
     String? subQuestId,
   }) async {
-    final user = ref.read(authProvider).value;
-    if (user?.isGamificationEnabled == false) return;
+    if (!_gamificationEnabled) return;
 
     // Award 1 XP per minute of focus, minimum 5 XP
     final calculatedXp = duration.inMinutes.clamp(5, 500);
 
     final event = UserActivityEvent(
       id: const Uuid().v4(),
-      userId: user?.id ?? _userId,
+      userId: _ownerId,
       type: UserActivityType.focusSessionCompleted,
       xpEarned: calculatedXp,
       occurredAt: DateTime.now(),
@@ -332,12 +334,11 @@ class UserProgressNotifier extends AsyncNotifier<UserProgress> {
   }
 
   Future<void> completeQuest() async {
-    final user = ref.read(authProvider).value;
-    if (user?.isGamificationEnabled == false) return;
+    if (!_gamificationEnabled) return;
 
     final event = UserActivityEvent(
       id: const Uuid().v4(),
-      userId: user?.id ?? _userId,
+      userId: _ownerId,
       type: UserActivityType.questCompleted,
       xpEarned: 50, // Default quest XP
       occurredAt: DateTime.now(),

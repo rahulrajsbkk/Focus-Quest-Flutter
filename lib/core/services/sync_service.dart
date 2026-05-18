@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:focus_quest/core/services/firestore_service.dart';
 import 'package:focus_quest/features/auth/providers/auth_provider.dart';
 import 'package:focus_quest/features/journal/providers/journal_provider.dart';
+import 'package:focus_quest/features/profile/providers/activity_stats_provider.dart';
 import 'package:focus_quest/features/profile/providers/user_progress_provider.dart';
 import 'package:focus_quest/features/tasks/providers/quest_provider.dart';
 import 'package:focus_quest/features/timer/providers/focus_session_provider.dart';
@@ -16,6 +17,24 @@ import 'package:focus_quest/models/user_progress.dart';
 import 'package:focus_quest/services/sembast_service.dart';
 import 'package:sembast/sembast.dart';
 
+/// Entity types tracked in the outbox / sync layer.
+enum _SyncEntity { quest, focusSession, journalEntry, activityEvent }
+
+extension on _SyncEntity {
+  String get key {
+    switch (this) {
+      case _SyncEntity.quest:
+        return 'quest';
+      case _SyncEntity.focusSession:
+        return 'session';
+      case _SyncEntity.journalEntry:
+        return 'journal';
+      case _SyncEntity.activityEvent:
+        return 'event';
+    }
+  }
+}
+
 class SyncService {
   SyncService(this._ref);
 
@@ -25,11 +44,16 @@ class SyncService {
 
   final List<StreamSubscription<dynamic>> _subscriptions = [];
 
+  // Debouncer for userProgressProvider invalidation during incoming event
+  // bursts (M6). 300ms collapses the typical backfill into one rebuild.
+  Timer? _progressInvalidateDebounce;
+
   AppUser? get _currentUser => _ref.read(authProvider).value;
   bool get _isSyncEnabled => _currentUser?.isSyncEnabled ?? false;
   String? get _userId => _currentUser?.id;
 
   /// Starts listening to Firestore streams for real-time updates.
+  /// Idempotent: calling twice stops the previous subscriptions first.
   void startRealTimeSync() {
     stopRealTimeSync();
 
@@ -66,56 +90,48 @@ class SyncService {
       }
       _subscriptions.clear();
     }
+    _progressInvalidateDebounce?.cancel();
+    _progressInvalidateDebounce = null;
   }
 
-  /// Syncs a quest to Firestore if sync is enabled.
-  Future<void> syncQuest(Quest quest) async {
-    if (!_isSyncEnabled || _userId == null) return;
-    try {
-      await _firestore.saveQuest(_userId!, quest);
-    } on Exception catch (e) {
-      // For now, we just log errors. In a full implementation,
-      // we'd use a queue.
-      debugPrint('Sync Error (Quest): $e');
-    }
-  }
+  // MARK: - Per-entity write APIs (called by providers)
 
-  /// Deletes a quest from Firestore if sync is enabled.
-  Future<void> syncDeleteQuest(String questId) async {
-    if (!_isSyncEnabled || _userId == null) return;
-    try {
-      await _firestore.deleteQuest(_userId!, questId);
-    } on Exception catch (e) {
-      debugPrint('Sync Error (Delete Quest): $e');
-    }
-  }
+  Future<void> syncQuest(Quest quest) =>
+      _enqueueAndTrySync(_SyncEntity.quest, quest.id, _OutboxOp.put);
 
-  /// Syncs a focus session to Firestore if sync is enabled.
-  Future<void> syncFocusSession(FocusSession session) async {
-    if (!_isSyncEnabled || _userId == null) return;
-    try {
-      await _firestore.saveFocusSession(_userId!, session);
-    } on Exception catch (e) {
-      debugPrint('Sync Error (Focus Session): $e');
-    }
-  }
+  Future<void> syncDeleteQuest(String questId) =>
+      _enqueueAndTrySync(_SyncEntity.quest, questId, _OutboxOp.delete);
 
-  /// Syncs a journal entry to Firestore if sync is enabled.
-  Future<void> syncJournalEntry(JournalEntry entry) async {
-    if (!_isSyncEnabled || _userId == null) return;
-    try {
-      await _firestore.saveJournalEntry(_userId!, entry);
-    } on Exception catch (e) {
-      debugPrint('Sync Error (Journal Entry): $e');
-    }
-  }
+  Future<void> syncFocusSession(FocusSession session) =>
+      _enqueueAndTrySync(_SyncEntity.focusSession, session.id, _OutboxOp.put);
+
+  Future<void> syncDeleteFocusSession(String sessionId) => _enqueueAndTrySync(
+    _SyncEntity.focusSession,
+    sessionId,
+    _OutboxOp.delete,
+  );
+
+  Future<void> syncJournalEntry(JournalEntry entry) =>
+      _enqueueAndTrySync(_SyncEntity.journalEntry, entry.id, _OutboxOp.put);
+
+  Future<void> syncDeleteJournalEntry(String entryId) => _enqueueAndTrySync(
+    _SyncEntity.journalEntry,
+    entryId,
+    _OutboxOp.delete,
+  );
+
+  Future<void> syncUserActivityEvent(UserActivityEvent event) =>
+      _enqueueAndTrySync(_SyncEntity.activityEvent, event.id, _OutboxOp.put);
 
   /// Syncs user progress to Firestore if sync is enabled.
+  /// User progress is event-sourced — this is a "snapshot" used by admin
+  /// views only. We push it directly (no outbox) because it can always be
+  /// recomputed from events on any client.
   Future<void> syncUserProgress(UserProgress progress) async {
     if (!_isSyncEnabled || _userId == null) return;
     try {
       await _firestore.saveUserProgress(_userId!, progress);
-    } on Exception catch (e) {
+    } on Object catch (e) {
       debugPrint('Sync Error (User Progress): $e');
     }
   }
@@ -125,19 +141,159 @@ class SyncService {
     if (user.isGuest) return;
     try {
       await _firestore.saveUser(user);
-    } on Exception catch (e) {
+    } on Object catch (e) {
       debugPrint('Sync Error (User): $e');
     }
   }
 
-  Future<void> syncUserActivityEvent(UserActivityEvent event) async {
+  // MARK: - Outbox
+
+  /// Enqueues an operation in the outbox and immediately attempts to flush it.
+  /// On failure, the outbox retains the entry for a later flush.
+  Future<void> _enqueueAndTrySync(
+    _SyncEntity entity,
+    String entityId,
+    _OutboxOp op,
+  ) async {
     if (!_isSyncEnabled || _userId == null) return;
-    try {
-      await _firestore.saveUserActivityEvent(_userId!, event);
-    } on Exception catch (e) {
-      debugPrint('Sync Error (Activity Event): $e');
+    final ownerUid = _userId!;
+    final entryKey = _outboxKey(entity, entityId, op);
+    final db = await _sembast.database;
+    await _sembast.outbox.record(entryKey).put(db, {
+      'type': entity.key,
+      'id': entityId,
+      'op': op.name,
+      'ownerUid': ownerUid,
+      'queuedAt': DateTime.now().toIso8601String(),
+      'attempts': 0,
+    });
+    await _processOutboxEntry(entryKey, ownerUid: ownerUid);
+  }
+
+  /// Flushes the outbox by attempting every pending entry. Called on
+  /// startup (via _bootstrapSync) and before full syncs.
+  Future<void> flushOutbox() async {
+    if (!_isSyncEnabled || _userId == null) return;
+    final db = await _sembast.database;
+    final records = await _sembast.outbox.find(db);
+    if (records.isEmpty) return;
+    debugPrint('Flushing outbox: ${records.length} pending entries');
+    // Process in queuedAt order so put-then-delete sequences land correctly.
+    records.sort((a, b) {
+      final aTs = (a.value['queuedAt'] as String?) ?? '';
+      final bTs = (b.value['queuedAt'] as String?) ?? '';
+      return aTs.compareTo(bTs);
+    });
+    for (final r in records) {
+      await _processOutboxEntry(r.key);
     }
   }
+
+  Future<void> _processOutboxEntry(
+    String entryKey, {
+    String? ownerUid,
+  }) async {
+    if (!_isSyncEnabled || _userId == null) return;
+    final db = await _sembast.database;
+    final record = await _sembast.outbox.record(entryKey).get(db);
+    if (record == null) return;
+
+    final entryOwner = record['ownerUid'] as String?;
+    // Defensive: an entry queued for a previous user should not be sent
+    // to the now-active user's collection.
+    if (entryOwner != null &&
+        ownerUid != null &&
+        entryOwner != ownerUid &&
+        entryOwner != _userId) {
+      debugPrint('Outbox entry $entryKey skipped (owner mismatch)');
+      return;
+    }
+    if (entryOwner != null && entryOwner != _userId) {
+      // Active user has changed since this entry was queued — drop it.
+      await _sembast.outbox.record(entryKey).delete(db);
+      return;
+    }
+
+    final type = (record['type'] as String?) ?? '';
+    final id = (record['id'] as String?) ?? '';
+    final op = (record['op'] as String?) ?? '';
+    if (type.isEmpty || id.isEmpty || op.isEmpty) {
+      await _sembast.outbox.record(entryKey).delete(db);
+      return;
+    }
+
+    try {
+      if (op == _OutboxOp.delete.name) {
+        await _firestoreDelete(type, id);
+      } else {
+        final payload = await _readLocalPayload(type, id);
+        if (payload == null) {
+          // The local record was removed; nothing to send. Drop the entry.
+          await _sembast.outbox.record(entryKey).delete(db);
+          return;
+        }
+        await _firestorePut(type, payload);
+      }
+      await _sembast.outbox.record(entryKey).delete(db);
+    } on Object catch (e) {
+      // Bump attempts but retain entry for next flush.
+      final attempts = (record['attempts'] as int? ?? 0) + 1;
+      await _sembast.outbox.record(entryKey).update(db, {'attempts': attempts});
+      debugPrint('Outbox $type/$id/$op failed (attempt $attempts): $e');
+    }
+  }
+
+  String _outboxKey(_SyncEntity entity, String id, _OutboxOp op) =>
+      '${entity.key}:$id:${op.name}';
+
+  Future<Object?> _readLocalPayload(String type, String id) async {
+    final db = await _sembast.database;
+    switch (type) {
+      case 'quest':
+        return _sembast.quests.record(id).get(db);
+      case 'session':
+        return _sembast.focusSessions.record(id).get(db);
+      case 'journal':
+        return _sembast.journalEntries.record(id).get(db);
+      case 'event':
+        return _sembast.userActivityEvents.record(id).get(db);
+    }
+    return null;
+  }
+
+  Future<void> _firestorePut(String type, Object payload) async {
+    final raw = Map<String, dynamic>.from(payload as Map);
+    switch (type) {
+      case 'quest':
+        await _firestore.saveQuest(_userId!, Quest.fromJson(raw));
+      case 'session':
+        await _firestore.saveFocusSession(_userId!, FocusSession.fromJson(raw));
+      case 'journal':
+        await _firestore.saveJournalEntry(_userId!, JournalEntry.fromJson(raw));
+      case 'event':
+        await _firestore.saveUserActivityEvent(
+          _userId!,
+          UserActivityEvent.fromJson(raw),
+        );
+    }
+  }
+
+  Future<void> _firestoreDelete(String type, String id) async {
+    switch (type) {
+      case 'quest':
+        await _firestore.deleteQuest(_userId!, id);
+      case 'session':
+        await _firestore.deleteFocusSession(_userId!, id);
+      case 'journal':
+        await _firestore.deleteJournalEntry(_userId!, id);
+      case 'event':
+        // Events are immutable in this app; deletes should be rare. If
+        // needed, we can add deleteUserActivityEvent to FirestoreService.
+        debugPrint('Outbox: delete of immutable event $id ignored.');
+    }
+  }
+
+  // MARK: - Full Sync
 
   /// Performs a full two-way sync between local Sembast and Firestore.
   Future<void> performFullSync() async {
@@ -148,6 +304,10 @@ class SyncService {
     try {
       final db = await _sembast.database;
 
+      // Always flush outbox FIRST so pending local edits/deletes don't get
+      // overwritten by a remote-wins reconciliation step.
+      await flushOutbox();
+
       await Future.wait([
         _safeRun(() => _syncQuests(db), 'Quests'),
         _safeRun(() => _syncFocusSessions(db), 'Focus Sessions'),
@@ -155,12 +315,8 @@ class SyncService {
         _safeRun(() => _syncActivityEvents(db), 'Activity Events'),
       ]);
 
-      // Sync UserProgress LAST as it depends on events (conceptually)
-      // For now, we only push the local state as a "backup/view" since it's derived from events
-      await _safeRun(() => _syncUserProgress(db), 'User Progress');
-
       debugPrint('Full sync completed successfully');
-    } on Exception catch (e) {
+    } on Object catch (e) {
       debugPrint('Full sync failed: $e');
     }
   }
@@ -168,7 +324,7 @@ class SyncService {
   Future<void> _safeRun(Future<void> Function() action, String label) async {
     try {
       await action();
-    } on Exception catch (e) {
+    } on Object catch (e) {
       debugPrint('Sync Error ($label): $e');
     }
   }
@@ -191,25 +347,26 @@ class SyncService {
         final remote = remoteMap[id];
 
         if (local != null && remote != null) {
-          if ((local.updatedAt ?? local.createdAt).isBefore(
-            remote.updatedAt ?? remote.createdAt,
-          )) {
-            // Remote is newer
-            await _sembast.quests.record(id).put(db, remote.toJson());
-          } else if ((local.updatedAt ?? local.createdAt).isAfter(
-            remote.updatedAt ?? remote.createdAt,
-          )) {
-            // Local is newer
-            await _firestore.saveQuest(_userId!, local);
+          final winner = _pickWinner(
+            localTs: local.updatedAt ?? local.createdAt,
+            remoteTs: remote.updatedAt ?? remote.createdAt,
+            localEqualsRemote: local == remote,
+          );
+          switch (winner) {
+            case _Winner.remote:
+              await _sembast.quests.record(id).put(db, remote.toJson());
+            case _Winner.local:
+              await _firestore.saveQuest(_userId!, local);
+            case _Winner.tie:
+              // Contents already match — nothing to do.
+              break;
           }
         } else if (local != null) {
-          // Only local exists
           await _firestore.saveQuest(_userId!, local);
         } else if (remote != null) {
-          // Only remote exists
           await _sembast.quests.record(id).put(db, remote.toJson());
         }
-      } on Exception catch (e) {
+      } on Object catch (e) {
         debugPrint('Sync Error (Quest $id): $e');
       }
     }
@@ -233,21 +390,25 @@ class SyncService {
         final remote = remoteMap[id];
 
         if (local != null && remote != null) {
-          if ((local.updatedAt ?? local.startedAt).isBefore(
-            remote.updatedAt ?? remote.startedAt,
-          )) {
-            await _sembast.focusSessions.record(id).put(db, remote.toJson());
-          } else if ((local.updatedAt ?? local.startedAt).isAfter(
-            remote.updatedAt ?? remote.startedAt,
-          )) {
-            await _firestore.saveFocusSession(_userId!, local);
+          final winner = _pickWinner(
+            localTs: local.updatedAt ?? local.startedAt,
+            remoteTs: remote.updatedAt ?? remote.startedAt,
+            localEqualsRemote: local == remote,
+          );
+          switch (winner) {
+            case _Winner.remote:
+              await _sembast.focusSessions.record(id).put(db, remote.toJson());
+            case _Winner.local:
+              await _firestore.saveFocusSession(_userId!, local);
+            case _Winner.tie:
+              break;
           }
         } else if (local != null) {
           await _firestore.saveFocusSession(_userId!, local);
         } else if (remote != null) {
           await _sembast.focusSessions.record(id).put(db, remote.toJson());
         }
-      } on Exception catch (e) {
+      } on Object catch (e) {
         debugPrint('Sync Error (FocusSession $id): $e');
       }
     }
@@ -271,21 +432,25 @@ class SyncService {
         final remote = remoteMap[id];
 
         if (local != null && remote != null) {
-          if ((local.updatedAt ?? local.createdAt).isBefore(
-            remote.updatedAt ?? remote.createdAt,
-          )) {
-            await _sembast.journalEntries.record(id).put(db, remote.toJson());
-          } else if ((local.updatedAt ?? local.createdAt).isAfter(
-            remote.updatedAt ?? remote.createdAt,
-          )) {
-            await _firestore.saveJournalEntry(_userId!, local);
+          final winner = _pickWinner(
+            localTs: local.updatedAt ?? local.createdAt,
+            remoteTs: remote.updatedAt ?? remote.createdAt,
+            localEqualsRemote: local == remote,
+          );
+          switch (winner) {
+            case _Winner.remote:
+              await _sembast.journalEntries.record(id).put(db, remote.toJson());
+            case _Winner.local:
+              await _firestore.saveJournalEntry(_userId!, local);
+            case _Winner.tie:
+              break;
           }
         } else if (local != null) {
           await _firestore.saveJournalEntry(_userId!, local);
         } else if (remote != null) {
           await _sembast.journalEntries.record(id).put(db, remote.toJson());
         }
-      } on Exception catch (e) {
+      } on Object catch (e) {
         debugPrint('Sync Error (JournalEntry $id): $e');
       }
     }
@@ -311,50 +476,61 @@ class SyncService {
         final remote = remoteMap[id];
 
         if (local == null && remote != null) {
-          // Missing locally -> Download
           await _sembast.userActivityEvents.record(id).put(db, remote.toJson());
-          debugPrint('Synced Event (Down): $id');
         } else if (local != null && remote == null) {
-          // Missing remotely -> Upload
           await _firestore.saveUserActivityEvent(_userId!, local);
-          debugPrint('Synced Event (Up): $id');
         }
         // If both exist, we assume they are identical (immutable)
-      } on Exception catch (e) {
+      } on Object catch (e) {
         debugPrint('Sync Error (Event $id): $e');
       }
     }
   }
 
-  Future<void> _syncUserProgress(Database db) async {
-    const progressId = 'default_user'; // Matches UserProgressNotifier._userId
-    final localRecord = await _sembast.userProgress.record(progressId).get(db);
+  // MARK: - Stream handlers
 
-    if (localRecord != null) {
-      final localProgress = UserProgress.fromJson(localRecord);
-      // We overwrite remote with local because local is the source of truth
-      // derived from events. Ideally we might want to also allow downloading
-      // progress if it's a fresh install BUT, since we just synced events,
-      // the local app will rebuild progress from those events anyway.
-      // So pushing local->remote is just for "viewing" purposes (admin, etc).
-      await _firestore.saveUserProgress(_userId!, localProgress);
-    }
+  /// Determines whether a local record can be safely deleted in response to
+  /// it being missing from a remote snapshot. Records still in the outbox
+  /// (pending upload) are treated as "not yet synced" and preserved.
+  Future<bool> _isPendingInOutbox(_SyncEntity entity, String id) async {
+    final db = await _sembast.database;
+    final putKey = _outboxKey(entity, id, _OutboxOp.put);
+    final delKey = _outboxKey(entity, id, _OutboxOp.delete);
+    final hasPut = await _sembast.outbox.record(putKey).exists(db);
+    final hasDel = await _sembast.outbox.record(delKey).exists(db);
+    return hasPut || hasDel;
   }
 
   Future<void> _handleIncomingQuests(List<Quest> remoteQuests) async {
     debugPrint('Sync: Received ${remoteQuests.length} quests');
     final db = await _sembast.database;
+    final remoteIds = {for (final q in remoteQuests) q.id};
+
+    // C5: propagate cross-device deletes — drop local records that have
+    // been previously synced (not pending in outbox) and no longer exist
+    // remotely.
+    final localRecords = await _sembast.quests.find(db);
+    for (final r in localRecords) {
+      if (!remoteIds.contains(r.key) &&
+          !await _isPendingInOutbox(_SyncEntity.quest, r.key)) {
+        await _sembast.quests.record(r.key).delete(db);
+      }
+    }
+
     for (final remote in remoteQuests) {
       final localRecord = await _sembast.quests.record(remote.id).get(db);
       if (localRecord == null) {
         await _sembast.quests.record(remote.id).put(db, remote.toJson());
-      } else {
-        final local = Quest.fromJson(localRecord);
-        if ((remote.updatedAt ?? remote.createdAt).isAfter(
-          local.updatedAt ?? local.createdAt,
-        )) {
-          await _sembast.quests.record(remote.id).put(db, remote.toJson());
-        }
+        continue;
+      }
+      final local = Quest.fromJson(localRecord);
+      final winner = _pickWinner(
+        localTs: local.updatedAt ?? local.createdAt,
+        remoteTs: remote.updatedAt ?? remote.createdAt,
+        localEqualsRemote: local == remote,
+      );
+      if (winner == _Winner.remote) {
+        await _sembast.quests.record(remote.id).put(db, remote.toJson());
       }
     }
     _ref.invalidate(questListProvider);
@@ -365,21 +541,34 @@ class SyncService {
   ) async {
     debugPrint('Sync: Received ${remoteSessions.length} sessions');
     final db = await _sembast.database;
+    final remoteIds = {for (final s in remoteSessions) s.id};
+
+    final localRecords = await _sembast.focusSessions.find(db);
+    for (final r in localRecords) {
+      if (!remoteIds.contains(r.key) &&
+          !await _isPendingInOutbox(_SyncEntity.focusSession, r.key)) {
+        await _sembast.focusSessions.record(r.key).delete(db);
+      }
+    }
+
     for (final remote in remoteSessions) {
       final localRecord = await _sembast.focusSessions
           .record(remote.id)
           .get(db);
       if (localRecord == null) {
         await _sembast.focusSessions.record(remote.id).put(db, remote.toJson());
-      } else {
-        final local = FocusSession.fromJson(localRecord);
-        if ((remote.updatedAt ?? remote.startedAt).isAfter(
-          local.updatedAt ?? local.startedAt,
-        )) {
-          await _sembast.focusSessions
-              .record(remote.id)
-              .put(db, remote.toJson());
-        }
+        continue;
+      }
+      final local = FocusSession.fromJson(localRecord);
+      final winner = _pickWinner(
+        localTs: local.updatedAt ?? local.startedAt,
+        remoteTs: remote.updatedAt ?? remote.startedAt,
+        localEqualsRemote: local == remote,
+      );
+      if (winner == _Winner.remote) {
+        await _sembast.focusSessions
+            .record(remote.id)
+            .put(db, remote.toJson());
       }
     }
     _ref.invalidate(focusSessionProvider);
@@ -390,6 +579,16 @@ class SyncService {
   ) async {
     debugPrint('Sync: Received ${remoteEntries.length} entries');
     final db = await _sembast.database;
+    final remoteIds = {for (final e in remoteEntries) e.id};
+
+    final localRecords = await _sembast.journalEntries.find(db);
+    for (final r in localRecords) {
+      if (!remoteIds.contains(r.key) &&
+          !await _isPendingInOutbox(_SyncEntity.journalEntry, r.key)) {
+        await _sembast.journalEntries.record(r.key).delete(db);
+      }
+    }
+
     for (final remote in remoteEntries) {
       final localRecord = await _sembast.journalEntries
           .record(remote.id)
@@ -398,15 +597,18 @@ class SyncService {
         await _sembast.journalEntries
             .record(remote.id)
             .put(db, remote.toJson());
-      } else {
-        final local = JournalEntry.fromJson(localRecord);
-        if ((remote.updatedAt ?? remote.createdAt).isAfter(
-          local.updatedAt ?? local.createdAt,
-        )) {
-          await _sembast.journalEntries
-              .record(remote.id)
-              .put(db, remote.toJson());
-        }
+        continue;
+      }
+      final local = JournalEntry.fromJson(localRecord);
+      final winner = _pickWinner(
+        localTs: local.updatedAt ?? local.createdAt,
+        remoteTs: remote.updatedAt ?? remote.createdAt,
+        localEqualsRemote: local == remote,
+      );
+      if (winner == _Winner.remote) {
+        await _sembast.journalEntries
+            .record(remote.id)
+            .put(db, remote.toJson());
       }
     }
     _ref.invalidate(journalProvider);
@@ -428,9 +630,36 @@ class SyncService {
       }
       // Events are immutable, so no need to update if exists
     }
-    _ref.invalidate(userProgressProvider);
+    // M6: debounce so a backfill burst doesn't trigger N rebuilds.
+    _progressInvalidateDebounce?.cancel();
+    _progressInvalidateDebounce = Timer(
+      const Duration(milliseconds: 300),
+      () {
+        _ref
+          ..invalidate(userProgressProvider)
+          ..invalidate(activityHeatmapProvider);
+      },
+    );
+  }
+
+  // MARK: - Conflict resolution helper (H3)
+
+  _Winner _pickWinner({
+    required DateTime localTs,
+    required DateTime remoteTs,
+    required bool localEqualsRemote,
+  }) {
+    if (localTs.isBefore(remoteTs)) return _Winner.remote;
+    if (localTs.isAfter(remoteTs)) return _Winner.local;
+    // Equal timestamps: if contents already match this is a no-op tie;
+    // otherwise prefer remote so every client converges deterministically.
+    return localEqualsRemote ? _Winner.tie : _Winner.remote;
   }
 }
+
+enum _Winner { local, remote, tie }
+
+enum _OutboxOp { put, delete }
 
 final syncServiceProvider = Provider<SyncService>((ref) {
   return SyncService(ref);

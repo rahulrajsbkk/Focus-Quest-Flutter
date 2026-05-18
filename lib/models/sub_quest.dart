@@ -55,6 +55,7 @@ class SubQuest {
     String? description,
     SubQuestStatus status = SubQuestStatus.pending,
     DateTime? completedAt,
+    DateTime? updatedAt,
     int order = 0,
   }) {
     // Validate duration constraint
@@ -71,6 +72,7 @@ class SubQuest {
       estimatedDuration: estimatedDuration,
       createdAt: createdAt,
       completedAt: completedAt,
+      updatedAt: updatedAt ?? createdAt,
       order: order,
     );
   }
@@ -87,6 +89,7 @@ class SubQuest {
     required this.order,
     this.description,
     this.completedAt,
+    this.updatedAt,
   });
 
   /// Creates a SubQuest from a JSON map.
@@ -114,6 +117,9 @@ class SubQuest {
       createdAt: DateTime.parse(json['createdAt'] as String),
       completedAt: json['completedAt'] != null
           ? DateTime.parse(json['completedAt'] as String)
+          : null,
+      updatedAt: json['updatedAt'] != null
+          ? DateTime.parse(json['updatedAt'] as String)
           : null,
       order: json['order'] as int? ?? 0,
     );
@@ -143,12 +149,16 @@ class SubQuest {
   /// When the sub-quest was completed (if completed).
   final DateTime? completedAt;
 
+  /// When the sub-quest was last updated (for sync conflict resolution).
+  final DateTime? updatedAt;
+
   /// Order within the parent quest (for sorting).
   final int order;
 
   /// Converts the SubQuest to a JSON map.
   Map<String, dynamic> toJson() {
     return {
+      'schemaVersion': 1,
       'id': id,
       'questId': questId,
       'title': title,
@@ -157,6 +167,7 @@ class SubQuest {
       'estimatedDurationSeconds': estimatedDuration.inSeconds,
       'createdAt': createdAt.toIso8601String(),
       'completedAt': completedAt?.toIso8601String(),
+      'updatedAt': updatedAt?.toIso8601String(),
       'order': order,
     };
   }
@@ -174,6 +185,7 @@ class SubQuest {
     Duration? estimatedDuration,
     DateTime? createdAt,
     DateTime? completedAt,
+    DateTime? updatedAt,
     int? order,
   }) {
     final newDuration = estimatedDuration ?? this.estimatedDuration;
@@ -192,6 +204,7 @@ class SubQuest {
       estimatedDuration: newDuration,
       createdAt: createdAt ?? this.createdAt,
       completedAt: completedAt ?? this.completedAt,
+      updatedAt: updatedAt ?? this.updatedAt,
       order: order ?? this.order,
     );
   }
@@ -229,6 +242,7 @@ class SubQuest {
         other.estimatedDuration == estimatedDuration &&
         other.createdAt == createdAt &&
         other.completedAt == completedAt &&
+        other.updatedAt == updatedAt &&
         other.order == order;
   }
 
@@ -243,6 +257,7 @@ class SubQuest {
       estimatedDuration,
       createdAt,
       completedAt,
+      updatedAt,
       order,
     );
   }

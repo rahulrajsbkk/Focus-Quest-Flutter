@@ -149,6 +149,7 @@ class FocusSession {
   /// Converts the FocusSession to a JSON map.
   Map<String, dynamic> toJson() {
     return {
+      'schemaVersion': 1,
       'id': id,
       'questId': questId,
       'subQuestId': subQuestId,

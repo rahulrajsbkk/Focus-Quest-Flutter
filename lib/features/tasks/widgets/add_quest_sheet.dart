@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:focus_quest/core/services/haptic_service.dart';
 import 'package:focus_quest/models/quest.dart';
+import 'package:uuid/uuid.dart';
 
 /// Bottom sheet for adding or editing a quest.
 class AddQuestSheet extends StatefulWidget {
@@ -86,7 +87,7 @@ class _AddQuestSheetState extends State<AddQuestSheet> {
             updatedAt: now,
           )
         : Quest(
-            id: 'quest_${now.millisecondsSinceEpoch}',
+            id: const Uuid().v4(),
             title: _titleController.text.trim(),
             description: _descriptionController.text.trim().isEmpty
                 ? null
@@ -98,6 +99,9 @@ class _AddQuestSheetState extends State<AddQuestSheet> {
                 ? _selectedDays
                 : <Weekday>{},
             createdAt: effectiveDate,
+            // Always set updatedAt at creation so sync conflict resolution
+            // never has to fall back to createdAt across devices (M2).
+            updatedAt: effectiveDate,
             // If not repeating, set due date to the selected date
             dueDate: _selectedRepeat == RepeatFrequency.none
                 ? effectiveDate

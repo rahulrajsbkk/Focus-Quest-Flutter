@@ -43,6 +43,7 @@ class UserActivityEvent {
 
   Map<String, dynamic> toJson() {
     return {
+      'schemaVersion': 1,
       'id': id,
       'userId': userId,
       'type': type.name,

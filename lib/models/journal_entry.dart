@@ -63,6 +63,7 @@ class JournalEntry {
   /// Converts the JournalEntry to a JSON map.
   Map<String, dynamic> toJson() {
     return {
+      'schemaVersion': 1,
       'id': id,
       'date': date.toIso8601String(),
       'mood': mood,

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:focus_quest/core/services/auth_service.dart';
 import 'package:focus_quest/core/services/notification_service.dart';
 import 'package:focus_quest/core/services/widget_service.dart';
 import 'package:focus_quest/core/theme/app_theme.dart';
@@ -11,6 +12,7 @@ import 'package:focus_quest/features/profile/providers/activity_stats_provider.d
 import 'package:focus_quest/firebase_options.dart';
 import 'package:focus_quest/l10n/app_localizations.dart';
 import 'package:focus_quest/providers/theme_provider.dart';
+import 'package:focus_quest/services/sembast_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -27,8 +29,21 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
+  // L1: Firestore enables offline persistence by default on mobile. Sembast
+  // is our authoritative local store, but we intentionally leave the
+  // Firestore cache enabled so initial stream subscriptions can serve
+  // cached docs while the network round-trip completes. The sync layer
+  // reconciles any discrepancy on the next tick.
+
   // Initialize Notification Service
   await NotificationService().initialize();
+
+  // Pre-select the active user's local database BEFORE any provider can
+  // read from sembast. Without this, the first reads (e.g. activity
+  // heatmap → home widget) would target the anonymous database and miss
+  // the signed-in user's data.
+  final initialUser = await AuthService().getCurrentUser();
+  await SembastService().setActiveUser(initialUser?.id);
 
   runApp(
     const ProviderScope(
