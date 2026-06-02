@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -22,6 +23,10 @@ class WidgetService {
 
   /// Updates the home screen widget with the latest data.
   Future<void> updateWidget() async {
+    // home_widget only supports Android/iOS. On web, dart:io's Platform is a
+    // stub and throws "Unsupported operation: Platform._operatingSystem".
+    if (kIsWeb) return;
+
     try {
       // Fetch latest data
       final activityStatsProvider = ref.read(activityHeatmapProvider.future);

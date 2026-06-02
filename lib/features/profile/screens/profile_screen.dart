@@ -97,9 +97,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 48),
-            // _buildGoogleSignInButton(),
-            const SizedBox(height: 16),
-            _buildEmailSignInButton(context),
+            // Primary: jump straight in as a guest — no account required.
+            _buildGuestSignUpButton(context),
+            const SizedBox(height: 12),
+            _buildPrivacyTag(context),
             const SizedBox(height: 24),
             Row(
               children: [
@@ -125,7 +126,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               ],
             ),
             const SizedBox(height: 24),
-            _buildGuestSignUpButton(context),
+            // Secondary: create an account to sync across devices.
+            // _buildGoogleSignInButton(),
+            _buildEmailSignInButton(context),
+            const SizedBox(height: 12),
+            Text(
+              'Create account to sync across devices',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Colors.grey,
+              ),
+              textAlign: TextAlign.center,
+            ),
           ],
         ),
       ),
@@ -206,17 +217,43 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     return SizedBox(
       width: double.infinity,
       height: 56,
-      child: OutlinedButton(
+      child: FilledButton(
         onPressed: () => _showGuestSetupDialog(context),
-        style: OutlinedButton.styleFrom(
+        style: FilledButton.styleFrom(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
-          side: BorderSide(
-            color: Theme.of(context).dividerColor,
-          ),
         ),
-        child: const Text('Continue as Guest'),
+        child: const Text(
+          'Continue as Guest',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+      ),
+    );
+  }
+
+  /// Reassures guests that staying local keeps their data private.
+  Widget _buildPrivacyTag(BuildContext context) {
+    final color = Theme.of(context).colorScheme.primary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.lock_outline_rounded, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(
+            'We respect your privacy',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
       ),
     );
   }
