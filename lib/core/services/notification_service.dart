@@ -25,6 +25,11 @@ class NotificationService {
   static const int notificationIdFinished = 1002;
 
   Future<void> initialize() async {
+    // Local notifications and timezone lookups have no web implementation.
+    // The plugin itself no-ops on web, but we return early to skip the
+    // timezone setup work too and to document the platform boundary.
+    if (kIsWeb) return;
+
     // ITimer initialization
     tz.initializeTimeZones();
     // Handling possible type mismatch if FlutterTimezone returns TimezoneInfo
@@ -126,6 +131,7 @@ class NotificationService {
     required int progress, // 0 to 100
     required int maxProgress,
   }) async {
+    if (kIsWeb) return;
     final androidPlatformChannelSpecifics = AndroidNotificationDetails(
       channelIdTimer,
       channelNameTimer,
@@ -165,6 +171,7 @@ class NotificationService {
     required String title,
     required String body,
   }) async {
+    if (kIsWeb) return;
     await flutterLocalNotificationsPlugin.zonedSchedule(
       id: notificationIdFinished,
       title: title,
@@ -194,6 +201,7 @@ class NotificationService {
     required String body,
     required DateTime scheduleDate,
   }) async {
+    if (kIsWeb) return;
     await flutterLocalNotificationsPlugin.zonedSchedule(
       id: id,
       title: title,
@@ -224,6 +232,7 @@ class NotificationService {
     int? id,
     bool ongoing = false,
   }) async {
+    if (kIsWeb) return;
     final androidPlatformChannelSpecifics = AndroidNotificationDetails(
       channelIdFinished, // Reusing high importance channel for alerts
       channelNameFinished,
@@ -257,14 +266,17 @@ class NotificationService {
   }
 
   Future<void> cancelNotification(int id) async {
+    if (kIsWeb) return;
     await flutterLocalNotificationsPlugin.cancel(id: id);
   }
 
   Future<void> cancelTimerNotification() async {
+    if (kIsWeb) return;
     await flutterLocalNotificationsPlugin.cancel(id: notificationIdTimer);
   }
 
   Future<void> cancelAllNotifications() async {
+    if (kIsWeb) return;
     await flutterLocalNotificationsPlugin.cancelAll();
   }
 }

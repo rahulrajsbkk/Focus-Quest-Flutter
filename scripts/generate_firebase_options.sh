@@ -3,11 +3,15 @@ set -e
 
 echo "Generating lib/firebase_options.dart from environment variables..."
 
-# Check for required variables (example check, can be expanded)
+# This script runs in the web deploy pipeline, so the web Firebase config is
+# mandatory. Fail fast on a missing key instead of emitting an options file
+# with empty strings — that would compile fine but crash Firebase.initializeApp
+# at runtime (blank white screen) with no obvious cause.
 if [ -z "$FIREBASE_API_KEY_WEB" ]; then
-  echo "Error: FIREBASE_API_KEY_WEB is not set."
-  # We might not want to exit if valid for other platforms, but for web deployment it is critical.
-  # exit 1 
+  echo "Error: FIREBASE_API_KEY_WEB is not set." >&2
+  echo "Set the FIREBASE_* environment variables in your Vercel project settings." >&2
+  echo "Source them from Firebase Console -> Project Settings -> Your apps -> Web app." >&2
+  exit 1
 fi
 
 cat <<EOF > lib/firebase_options.dart

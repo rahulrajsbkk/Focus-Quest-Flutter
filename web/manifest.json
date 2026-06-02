@@ -5,7 +5,7 @@
     "display": "standalone",
     "background_color": "#283228",
     "theme_color": "#283228",
-    "description": "A new Flutter project.",
+    "description": "Gamify your productivity journey.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
