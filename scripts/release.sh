@@ -255,16 +255,9 @@ create_github_release() {
     
     # Check if release already exists
     if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPO" &> /dev/null; then
-        print_warning "Release $RELEASE_TAG already exists"
-        read -p "Do you want to delete and recreate it? (y/n): " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            gh release delete "$RELEASE_TAG" --repo "$GITHUB_REPO" --yes
-            print_info "Deleted existing release"
-        else
-            print_error "Aborting release"
-            exit 1
-        fi
+        print_warning "Release $RELEASE_TAG already exists. Deleting it..."
+        gh release delete "$RELEASE_TAG" --repo "$GITHUB_REPO" --yes
+        print_info "Deleted existing release"
     fi
     
     # Generate release notes
@@ -475,15 +468,8 @@ main() {
         print_warning "No build artifacts found"
     fi
     
-    # Ask to create release
-    echo ""
-    read -p "Create GitHub release with these artifacts? (y/n): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        create_github_release
-    else
-        print_info "Skipping GitHub release. Artifacts are in: $BUILD_OUTPUT_DIR"
-    fi
+    # Create GitHub release directly
+    create_github_release
     
     print_header "Done!"
 }
