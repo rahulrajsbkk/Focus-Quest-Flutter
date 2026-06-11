@@ -3,19 +3,20 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:flutter_local_notifications_platform_interface/flutter_local_notifications_platform_interface.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:focus_quest/main.dart';
 
-class MockAndroidFlutterLocalNotificationsPlugin extends AndroidFlutterLocalNotificationsPlugin {
+class MockAndroidFlutterLocalNotificationsPlugin
+    extends AndroidFlutterLocalNotificationsPlugin {
   @override
   Future<bool?> requestNotificationsPermission() async {
     return true;
   }
 }
 
-class MockMacOSFlutterLocalNotificationsPlugin extends MacOSFlutterLocalNotificationsPlugin {
+class MockMacOSFlutterLocalNotificationsPlugin
+    extends MacOSFlutterLocalNotificationsPlugin {
   @override
   Future<bool?> requestPermissions({
     bool sound = false,
@@ -29,7 +30,8 @@ class MockMacOSFlutterLocalNotificationsPlugin extends MacOSFlutterLocalNotifica
   }
 }
 
-class MockIOSFlutterLocalNotificationsPlugin extends IOSFlutterLocalNotificationsPlugin {
+class MockIOSFlutterLocalNotificationsPlugin
+    extends IOSFlutterLocalNotificationsPlugin {
   @override
   Future<bool?> requestPermissions({
     bool sound = false,
@@ -47,15 +49,18 @@ class MockIOSFlutterLocalNotificationsPlugin extends IOSFlutterLocalNotification
 void main() {
   setUp(() {
     if (defaultTargetPlatform == TargetPlatform.android) {
-      FlutterLocalNotificationsPlatform.instance = MockAndroidFlutterLocalNotificationsPlugin();
+      FlutterLocalNotificationsPlatform.instance =
+          MockAndroidFlutterLocalNotificationsPlugin();
     } else if (defaultTargetPlatform == TargetPlatform.macOS) {
-      FlutterLocalNotificationsPlatform.instance = MockMacOSFlutterLocalNotificationsPlugin();
+      FlutterLocalNotificationsPlatform.instance =
+          MockMacOSFlutterLocalNotificationsPlugin();
     } else if (defaultTargetPlatform == TargetPlatform.iOS) {
-      FlutterLocalNotificationsPlatform.instance = MockIOSFlutterLocalNotificationsPlugin();
+      FlutterLocalNotificationsPlatform.instance =
+          MockIOSFlutterLocalNotificationsPlugin();
     }
   });
 
-  testWidgets('FocusQuest app loads successfully', (WidgetTester tester) async {
+  testWidgets('FocusQuest app loads successfully', (tester) async {
     // Build our app wrapped in ProviderScope and trigger a frame.
     await tester.pumpWidget(
       const ProviderScope(
@@ -73,7 +78,7 @@ void main() {
     // Verify that the default user name is displayed
     expect(find.text('Adventurer'), findsOneWidget);
 
-    // Verify the FAB for creating new quests (which has the add icon) is visible
+    // Verify the FAB for creating new quests (with the add icon) is visible
     expect(find.byIcon(Icons.add), findsOneWidget);
   });
 }

@@ -587,12 +587,12 @@ class _FocusTimerScreenState extends ConsumerState<FocusTimerScreen>
                           mainLabelStyle: Theme.of(
                             context,
                           ).textTheme.displayMedium,
-                          modifier: (double value) {
+                          modifier: (value) {
                             return '${value.round()}m';
                           },
                         ),
                       ),
-                      onChange: (double value) {
+                      onChange: (value) {
                         setState(() {
                           selectedMinutes = value.round();
                         });

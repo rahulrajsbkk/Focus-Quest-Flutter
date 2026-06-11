@@ -101,6 +101,23 @@ void main() {
         expect(quest.repeatDays, isEmpty);
         expect(quest.completionCount, 0);
         expect(quest.tags, isEmpty);
+        expect(quest.sortOrder, 0);
+        expect(quest.reminderTime, isNull);
+      });
+
+      test('fromJson() and toJson() handle sortOrder and reminderTime', () {
+        final quest = testQuest.copyWith(
+          sortOrder: 5,
+          reminderTime: '08:45',
+        );
+
+        final json = quest.toJson();
+        expect(json['sortOrder'], 5);
+        expect(json['reminderTime'], '08:45');
+
+        final restored = Quest.fromJson(json);
+        expect(restored.sortOrder, 5);
+        expect(restored.reminderTime, '08:45');
       });
 
       test('round-trip serialization preserves data', () {
@@ -108,6 +125,8 @@ void main() {
           status: QuestStatus.completed,
           completedAt: testDate.add(const Duration(days: 1)),
           updatedAt: testDate.add(const Duration(days: 1)),
+          sortOrder: 3,
+          reminderTime: '15:30',
         );
 
         final json = completedQuest.toJson();
@@ -168,6 +187,16 @@ void main() {
         );
 
         expect(updated.repeatDays, {Weekday.monday, Weekday.friday});
+      });
+
+      test('copyWith clearReminderTime parameter works', () {
+        final questWithReminder = testQuest.copyWith(
+          reminderTime: '12:00',
+        );
+        expect(questWithReminder.reminderTime, '12:00');
+
+        final cleared = questWithReminder.copyWith(clearReminderTime: true);
+        expect(cleared.reminderTime, isNull);
       });
     });
 

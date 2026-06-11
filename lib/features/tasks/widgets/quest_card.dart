@@ -16,6 +16,7 @@ class QuestCard extends ConsumerWidget {
     required this.onComplete,
     required this.onDelete,
     this.onStartTimer,
+    this.index,
     super.key,
   });
 
@@ -24,6 +25,7 @@ class QuestCard extends ConsumerWidget {
   final VoidCallback onComplete;
   final VoidCallback onDelete;
   final VoidCallback? onStartTimer;
+  final int? index;
 
   Color _getEnergyColor(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -221,6 +223,19 @@ class QuestCard extends ConsumerWidget {
             ),
             child: Row(
               children: [
+                if (index != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ReorderableDragStartListener(
+                      index: index!,
+                      child: Icon(
+                        Icons.drag_indicator_rounded,
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.3,
+                        ),
+                      ),
+                    ),
+                  ),
                 // Completion checkbox
                 GestureDetector(
                   onTap: () async {
@@ -428,6 +443,37 @@ class QuestCard extends ConsumerWidget {
                         spacing: 8,
                         runSpacing: 6,
                         children: [
+                          // Alarm chip
+                          if (quest.reminderTime != null)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.alarm_rounded,
+                                    size: 12,
+                                    color: Colors.blue,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    _formatTime(quest.reminderTime!),
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: Colors.blue,
+                                      fontWeight: FontWeight.w500,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           // Category chip
                           Container(
                             padding: const EdgeInsets.symmetric(
@@ -586,6 +632,19 @@ class QuestCard extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  String _formatTime(String timeStr) {
+    final parts = timeStr.split(':');
+    if (parts.length < 2) return timeStr;
+    final hour = int.tryParse(parts[0]);
+    final minute = int.tryParse(parts[1]);
+    if (hour == null || minute == null) return timeStr;
+
+    final period = hour >= 12 ? 'PM' : 'AM';
+    final hour12 = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour);
+    final minuteStr = minute.toString().padLeft(2, '0');
+    return '$hour12:$minuteStr $period';
   }
 
   Future<String?> _showNoteDialog(BuildContext context) async {

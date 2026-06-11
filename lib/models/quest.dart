@@ -74,8 +74,7 @@ enum Weekday {
   thursday(4, 'Thu', 'Thursday'),
   friday(5, 'Fri', 'Friday'),
   saturday(6, 'Sat', 'Saturday'),
-  sunday(7, 'Sun', 'Sunday')
-  ;
+  sunday(7, 'Sun', 'Sunday');
 
   const Weekday(this.value, this.shortName, this.fullName);
 
@@ -125,6 +124,8 @@ class Quest {
     this.completionNotes = const {},
     this.currentStreak = 0,
     this.longestStreak = 0,
+    this.sortOrder = 0,
+    this.reminderTime,
   });
 
   /// Creates a Quest from a JSON map.
@@ -185,6 +186,8 @@ class Quest {
           const {},
       currentStreak: json['currentStreak'] as int? ?? 0,
       longestStreak: json['longestStreak'] as int? ?? 0,
+      sortOrder: json['sortOrder'] as int? ?? 0,
+      reminderTime: json['reminderTime'] as String?,
     );
   }
 
@@ -249,6 +252,12 @@ class Quest {
   /// Longest streak reached for this quest.
   final int longestStreak;
 
+  /// Custom sorting order for display.
+  final int sortOrder;
+
+  /// Reminder time of day in 'HH:mm' format (e.g. '09:30').
+  final String? reminderTime;
+
   /// Converts the Quest to a JSON map.
   Map<String, dynamic> toJson() {
     return {
@@ -260,7 +269,7 @@ class Quest {
       'energyLevel': energyLevel.name,
       'category': category.name,
       'repeatFrequency': repeatFrequency.name,
-      'repeatDays': repeatDays.map((Weekday w) => w.value).toList(),
+      'repeatDays': repeatDays.map((w) => w.value).toList(),
       'lastCompletedAt': lastCompletedAt?.toIso8601String(),
       'completionCount': completionCount,
       'createdAt': createdAt.toIso8601String(),
@@ -273,6 +282,8 @@ class Quest {
       'completionNotes': completionNotes,
       'currentStreak': currentStreak,
       'longestStreak': longestStreak,
+      'sortOrder': sortOrder,
+      'reminderTime': reminderTime,
     };
   }
 
@@ -298,6 +309,9 @@ class Quest {
     Map<String, String>? completionNotes,
     int? currentStreak,
     int? longestStreak,
+    int? sortOrder,
+    String? reminderTime,
+    bool clearReminderTime = false,
   }) {
     return Quest(
       id: id ?? this.id,
@@ -320,6 +334,10 @@ class Quest {
       completionNotes: completionNotes ?? this.completionNotes,
       currentStreak: currentStreak ?? this.currentStreak,
       longestStreak: longestStreak ?? this.longestStreak,
+      sortOrder: sortOrder ?? this.sortOrder,
+      reminderTime: clearReminderTime
+          ? null
+          : (reminderTime ?? this.reminderTime),
     );
   }
 
@@ -364,8 +382,8 @@ class Quest {
 
     // Sort by weekday value and join short names
     final sorted = repeatDays.toList()
-      ..sort((Weekday a, Weekday b) => a.value.compareTo(b.value));
-    return sorted.map((Weekday w) => w.shortName).join(', ');
+      ..sort((a, b) => a.value.compareTo(b.value));
+    return sorted.map((w) => w.shortName).join(', ');
   }
 
   /// Checks if a repeating quest is due for completion.
@@ -526,6 +544,40 @@ class Quest {
     return streak;
   }
 
+  /// Gets the next scheduled date for this quest, starting from the given
+  /// date (inclusive). If start date is today, and the quest is already
+  /// completed today, it finds the next scheduled date.
+  DateTime? getNextScheduledDate(DateTime fromDate) {
+    final start = DateTime(fromDate.year, fromDate.month, fromDate.day);
+
+    if (!isRepeating) {
+      if (dueDate != null) {
+        final due = DateTime(dueDate!.year, dueDate!.month, dueDate!.day);
+        if (!due.isBefore(start)) {
+          return due;
+        }
+      }
+      return null;
+    }
+
+    // For repeating, check the next 365 days
+    for (var i = 0; i < 365; i++) {
+      final date = start.add(Duration(days: i));
+      if (isScheduledForDate(date)) {
+        // If it's today, check if it's already completed today
+        if (i == 0) {
+          final isCompletedToday = statusForDate(date) == QuestStatus.completed;
+          if (isCompletedToday) {
+            // Already done today, find next occurrence
+            continue;
+          }
+        }
+        return date;
+      }
+    }
+    return null;
+  }
+
   bool _isSameDay(DateTime a, DateTime b) {
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
@@ -551,31 +603,39 @@ class Quest {
         listEquals(other.tags, tags) &&
         listEquals(other.skippedDates, skippedDates) &&
         other.recurrenceEndDate == recurrenceEndDate &&
-        mapEquals(other.completionNotes, completionNotes);
+        mapEquals(other.completionNotes, completionNotes) &&
+        other.sortOrder == sortOrder &&
+        other.reminderTime == reminderTime;
   }
 
   @override
   int get hashCode {
     return Object.hash(
-      id,
-      title,
-      description,
-      status,
-      energyLevel,
-      category,
-      repeatFrequency,
-      Object.hashAll(repeatDays),
-      lastCompletedAt,
-      completionCount,
-      createdAt,
-      updatedAt,
-      completedAt,
-      dueDate,
-      Object.hashAll(tags),
-      Object.hashAll(skippedDates),
-      recurrenceEndDate,
-      Object.hashAll(completionNotes.keys),
-      Object.hashAll(completionNotes.values),
+      Object.hash(
+        id,
+        title,
+        description,
+        status,
+        energyLevel,
+        category,
+        repeatFrequency,
+        Object.hashAll(repeatDays),
+        lastCompletedAt,
+        completionCount,
+      ),
+      Object.hash(
+        createdAt,
+        updatedAt,
+        completedAt,
+        dueDate,
+        Object.hashAll(tags),
+        Object.hashAll(skippedDates),
+        recurrenceEndDate,
+        Object.hashAll(completionNotes.keys),
+        Object.hashAll(completionNotes.values),
+        sortOrder,
+      ),
+      reminderTime,
     );
   }
 

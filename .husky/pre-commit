@@ -8,8 +8,8 @@ if ! flutter analyze; then
 fi
 
 echo "🎨 Running Dart Format..."
-if ! dart format --output=none --set-exit-if-changed .; then
-  echo "❌ Dart Format failed. Run 'dart format .' to fix."
+if ! dart format --output=none --set-exit-if-changed lib test; then
+  echo "❌ Dart Format failed. Run 'dart format lib test' to fix."
   exit 1
 fi
 

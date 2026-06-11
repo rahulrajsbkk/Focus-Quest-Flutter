@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:focus_quest/core/services/notification_service.dart';
 import 'package:focus_quest/core/services/sync_service.dart';
 import 'package:focus_quest/features/profile/providers/user_progress_provider.dart';
 import 'package:focus_quest/models/quest.dart';
@@ -41,43 +42,54 @@ class QuestListState {
   /// Get quests filtered by category
   List<Quest> _filterByCategory(List<Quest> questList) {
     if (selectedCategory == null) return questList;
-    return questList
-        .where((Quest q) => q.category == selectedCategory)
-        .toList();
+    return questList.where((q) => q.category == selectedCategory).toList();
   }
 
   /// Get active quests (pending or in progress)
   List<Quest> get activeQuests {
-    final active = quests.where((Quest q) => q.isActive).toList()
-      ..sort((Quest a, Quest b) => b.createdAt.compareTo(a.createdAt));
+    final active = quests.where((q) => q.isActive).toList()
+      ..sort((a, b) {
+        final orderCompare = a.sortOrder.compareTo(b.sortOrder);
+        if (orderCompare != 0) return orderCompare;
+        return b.createdAt.compareTo(a.createdAt);
+      });
     return _filterByCategory(active);
   }
 
   /// Get completed quests (non-repeating only, or repeating that are not due)
   List<Quest> get completedQuests {
     final completed =
-        quests.where((Quest q) {
+        quests.where((q) {
           if (q.isRepeating) {
             // For repeating quests, show in completed if not due
             return q.isCompleted && !q.isDueForRepeat;
           }
           return q.isCompleted;
         }).toList()..sort(
-          (Quest a, Quest b) => (b.completedAt ?? b.createdAt).compareTo(
-            a.completedAt ?? a.createdAt,
-          ),
+          (a, b) {
+            final orderCompare = a.sortOrder.compareTo(b.sortOrder);
+            if (orderCompare != 0) return orderCompare;
+            return (b.completedAt ?? b.createdAt).compareTo(
+              a.completedAt ?? a.createdAt,
+            );
+          },
         );
     return _filterByCategory(completed);
   }
 
   /// Get all active quests including repeating ones that are due
   List<Quest> get allActiveQuests {
-    final active = quests.where((Quest q) {
-      if (q.isRepeating && q.isDueForRepeat) {
-        return true; // Show repeating quests that are due
-      }
-      return q.isActive;
-    }).toList()..sort((Quest a, Quest b) => b.createdAt.compareTo(a.createdAt));
+    final active =
+        quests.where((q) {
+          if (q.isRepeating && q.isDueForRepeat) {
+            return true; // Show repeating quests that are due
+          }
+          return q.isActive;
+        }).toList()..sort((a, b) {
+          final orderCompare = a.sortOrder.compareTo(b.sortOrder);
+          if (orderCompare != 0) return orderCompare;
+          return b.createdAt.compareTo(a.createdAt);
+        });
     return _filterByCategory(active);
   }
 
@@ -109,11 +121,15 @@ class QuestListNotifier extends AsyncNotifier<QuestListState> {
       final quests =
           records
               .map(
-                (RecordSnapshot<String, Map<String, Object?>> record) =>
+                (record) =>
                     Quest.fromJson(Map<String, dynamic>.from(record.value)),
               )
               .toList()
-            ..sort((Quest a, Quest b) => b.createdAt.compareTo(a.createdAt));
+            ..sort((a, b) {
+              final orderCompare = a.sortOrder.compareTo(b.sortOrder);
+              if (orderCompare != 0) return orderCompare;
+              return b.createdAt.compareTo(a.createdAt);
+            });
 
       return QuestListState(quests: quests, selectedCategory: category);
     } on Exception catch (e) {
@@ -138,6 +154,11 @@ class QuestListNotifier extends AsyncNotifier<QuestListState> {
   Future<void> addQuest(Quest quest) async {
     state = const AsyncValue.loading();
 
+    // Schedule alarm if enabled
+    if (quest.reminderTime != null) {
+      unawaited(NotificationService().scheduleQuestAlarm(quest));
+    }
+
     final currentCategory = state.value?.selectedCategory;
     state = await AsyncValue.guard(() async {
       final db = await _db.database;
@@ -155,8 +176,15 @@ class QuestListNotifier extends AsyncNotifier<QuestListState> {
     final currentState = state.value;
     if (currentState == null) return;
 
+    // Schedule or cancel alarm
+    if (quest.reminderTime != null && quest.isActive) {
+      unawaited(NotificationService().scheduleQuestAlarm(quest));
+    } else {
+      unawaited(NotificationService().cancelQuestAlarm(quest.id));
+    }
+
     // Optimistic update
-    final updatedQuests = currentState.quests.map((Quest q) {
+    final updatedQuests = currentState.quests.map((q) {
       return q.id == quest.id ? quest : q;
     }).toList();
 
@@ -185,7 +213,7 @@ class QuestListNotifier extends AsyncNotifier<QuestListState> {
     final currentState = state.value;
     if (currentState == null) return;
 
-    final quest = currentState.quests.firstWhere((Quest q) => q.id == questId);
+    final quest = currentState.quests.firstWhere((q) => q.id == questId);
     final now = completionDate ?? DateTime.now();
     final dateKey = _formatDateKey(now);
 
@@ -318,9 +346,12 @@ class QuestListNotifier extends AsyncNotifier<QuestListState> {
     final currentState = state.value;
     if (currentState == null) return;
 
+    // Cancel alarm if scheduled
+    unawaited(NotificationService().cancelQuestAlarm(questId));
+
     // Optimistic update
     final updatedQuests = currentState.quests
-        .where((Quest q) => q.id != questId)
+        .where((q) => q.id != questId)
         .toList();
     state = AsyncValue.data(currentState.copyWith(quests: updatedQuests));
 
@@ -343,7 +374,7 @@ class QuestListNotifier extends AsyncNotifier<QuestListState> {
     final currentState = state.value;
     if (currentState == null) return;
 
-    final quest = currentState.quests.firstWhere((Quest q) => q.id == questId);
+    final quest = currentState.quests.firstWhere((q) => q.id == questId);
     final updatedQuest = quest.copyWith(
       status: QuestStatus.inProgress,
       updatedAt: DateTime.now(),
@@ -357,7 +388,7 @@ class QuestListNotifier extends AsyncNotifier<QuestListState> {
     final currentState = state.value;
     if (currentState == null) return;
 
-    final quest = currentState.quests.firstWhere((Quest q) => q.id == questId);
+    final quest = currentState.quests.firstWhere((q) => q.id == questId);
     if (!quest.isRepeating) return;
 
     final updatedQuest = quest.copyWith(
@@ -414,6 +445,56 @@ class QuestListNotifier extends AsyncNotifier<QuestListState> {
     }
 
     return overdue.length;
+  }
+
+  /// Reorder quests database method.
+  Future<void> updateQuestOrder(List<Quest> reorderedQuests) async {
+    final currentState = state.value;
+    if (currentState == null) return;
+
+    // Map each original quest to its new sort order
+    final updatedQuestsMap = <String, Quest>{};
+    for (var i = 0; i < reorderedQuests.length; i++) {
+      final reorderedQuest = reorderedQuests[i];
+      final originalQuest = currentState.quests.firstWhere(
+        (q) => q.id == reorderedQuest.id,
+        orElse: () => reorderedQuest,
+      );
+      updatedQuestsMap[reorderedQuest.id] = originalQuest.copyWith(
+        sortOrder: i,
+      );
+    }
+
+    final newQuests = currentState.quests.map((q) {
+      return updatedQuestsMap[q.id] ?? q;
+    }).toList();
+
+    state = AsyncValue.data(currentState.copyWith(quests: newQuests));
+
+    // Persist in Sembast & Firestore Sync
+    try {
+      final db = await _db.database;
+      await db.transaction((txn) async {
+        for (final entry in updatedQuestsMap.entries) {
+          final updatedQuest = entry.value;
+          await _db.quests
+              .record(updatedQuest.id)
+              .put(txn, updatedQuest.toJson());
+          // Sync to Firestore
+          unawaited(ref.read(syncServiceProvider).syncQuest(updatedQuest));
+          // Update alarm if needed
+          if (updatedQuest.reminderTime != null && updatedQuest.isActive) {
+            unawaited(NotificationService().scheduleQuestAlarm(updatedQuest));
+          } else {
+            unawaited(NotificationService().cancelQuestAlarm(updatedQuest.id));
+          }
+        }
+      });
+    } on Exception {
+      // Revert on error
+      final category = currentState.selectedCategory;
+      state = await AsyncValue.guard(() => _loadQuests(category: category));
+    }
   }
 }
 

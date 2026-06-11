@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "dart": {
+      "type": "stdio",
+      "command": "dart",
+      "args": [
+        "mcp-server"
+      ],
+      "env": {}
+    },
+    "firebase": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "firebase-tools@latest",
+        "mcp"
+      ],
+      "env": {}
+    }
+  }
+}

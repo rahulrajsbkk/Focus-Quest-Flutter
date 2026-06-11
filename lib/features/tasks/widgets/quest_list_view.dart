@@ -12,6 +12,7 @@ class QuestListView extends StatelessWidget {
     required this.onQuestComplete,
     required this.onQuestDelete,
     this.onStartTimer,
+    this.onReorder,
     super.key,
   });
 
@@ -23,6 +24,7 @@ class QuestListView extends StatelessWidget {
   final void Function(Quest) onQuestComplete;
   final void Function(Quest) onQuestDelete;
   final void Function(Quest)? onStartTimer;
+  final void Function(int oldIndex, int newIndex)? onReorder;
 
   @override
   Widget build(BuildContext context) {
@@ -66,6 +68,29 @@ class QuestListView extends StatelessWidget {
             ],
           ),
         ),
+      );
+    }
+
+    if (onReorder != null) {
+      return ReorderableListView.builder(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 110),
+        buildDefaultDragHandles: false,
+        itemCount: quests.length,
+        onReorderItem: onReorder,
+        itemBuilder: (context, index) {
+          final quest = quests[index];
+          return QuestCard(
+            key: ValueKey(quest.id),
+            quest: quest,
+            index: index,
+            onTap: () => onQuestTap(quest),
+            onComplete: () => onQuestComplete(quest),
+            onDelete: () => onQuestDelete(quest),
+            onStartTimer: onStartTimer != null
+                ? () => onStartTimer!(quest)
+                : null,
+          );
+        },
       );
     }
 

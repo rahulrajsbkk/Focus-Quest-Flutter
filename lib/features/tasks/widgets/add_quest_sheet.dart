@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:focus_quest/core/services/haptic_service.dart';
+import 'package:focus_quest/core/services/notification_service.dart';
 import 'package:focus_quest/models/quest.dart';
 import 'package:uuid/uuid.dart';
 
@@ -28,6 +29,8 @@ class _AddQuestSheetState extends State<AddQuestSheet> {
   late QuestCategory _selectedCategory;
   late RepeatFrequency _selectedRepeat;
   late Set<Weekday> _selectedDays;
+  bool _hasReminder = false;
+  TimeOfDay? _reminderTimeOfDay;
   final _formKey = GlobalKey<FormState>();
 
   bool get isEditing => widget.existingQuest != null;
@@ -46,6 +49,16 @@ class _AddQuestSheetState extends State<AddQuestSheet> {
     _selectedRepeat =
         widget.existingQuest?.repeatFrequency ?? RepeatFrequency.none;
     _selectedDays = Set<Weekday>.from(widget.existingQuest?.repeatDays ?? {});
+    if (widget.existingQuest?.reminderTime != null) {
+      _hasReminder = true;
+      final parts = widget.existingQuest!.reminderTime!.split(':');
+      if (parts.length == 2) {
+        _reminderTimeOfDay = TimeOfDay(
+          hour: int.parse(parts[0]),
+          minute: int.parse(parts[1]),
+        );
+      }
+    }
   }
 
   @override
@@ -72,6 +85,11 @@ class _AddQuestSheetState extends State<AddQuestSheet> {
       now.second,
     );
 
+    final reminderTime = _hasReminder && _reminderTimeOfDay != null
+        ? '${_reminderTimeOfDay!.hour.toString().padLeft(2, '0')}:'
+              '${_reminderTimeOfDay!.minute.toString().padLeft(2, '0')}'
+        : null;
+
     final quest = widget.existingQuest != null
         ? widget.existingQuest!.copyWith(
             title: _titleController.text.trim(),
@@ -85,6 +103,8 @@ class _AddQuestSheetState extends State<AddQuestSheet> {
                 ? _selectedDays
                 : <Weekday>{},
             updatedAt: now,
+            reminderTime: reminderTime,
+            clearReminderTime: reminderTime == null,
           )
         : Quest(
             id: const Uuid().v4(),
@@ -106,6 +126,7 @@ class _AddQuestSheetState extends State<AddQuestSheet> {
             dueDate: _selectedRepeat == RepeatFrequency.none
                 ? effectiveDate
                 : null,
+            reminderTime: reminderTime,
           );
 
     await HapticService().lightImpact();
@@ -320,6 +341,84 @@ class _AddQuestSheetState extends State<AddQuestSheet> {
                     onSelectWeekdays: _selectWeekdays,
                     onSelectWeekends: _selectWeekends,
                     onClear: _clearDays,
+                  ),
+                ],
+
+                const SizedBox(height: 24),
+                // Reminder Alarm Section
+                Row(
+                  children: [
+                    Icon(
+                      Icons.alarm_rounded,
+                      size: 20,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Reminder Alarm',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.7,
+                        ),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const Spacer(),
+                    Switch.adaptive(
+                      value: _hasReminder,
+                      onChanged: (value) async {
+                        await HapticService().selectionClick();
+                        if (value) {
+                          await NotificationService().requestPermission();
+                          if (!context.mounted) return;
+                          final picked = await showTimePicker(
+                            context: context,
+                            initialTime:
+                                _reminderTimeOfDay ??
+                                const TimeOfDay(hour: 9, minute: 0),
+                          );
+                          if (picked != null) {
+                            setState(() {
+                              _hasReminder = true;
+                              _reminderTimeOfDay = picked;
+                            });
+                          }
+                        } else {
+                          setState(() {
+                            _hasReminder = false;
+                          });
+                        }
+                      },
+                    ),
+                  ],
+                ),
+                if (_hasReminder && _reminderTimeOfDay != null) ...[
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: () async {
+                        await HapticService().selectionClick();
+                        if (!context.mounted) return;
+                        final picked = await showTimePicker(
+                          context: context,
+                          initialTime: _reminderTimeOfDay!,
+                        );
+                        if (picked != null) {
+                          setState(() {
+                            _reminderTimeOfDay = picked;
+                          });
+                        }
+                      },
+                      icon: const Icon(
+                        Icons.access_time_filled_rounded,
+                        size: 18,
+                      ),
+                      label: Text(
+                        _reminderTimeOfDay!.format(context),
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
                   ),
                 ],
 

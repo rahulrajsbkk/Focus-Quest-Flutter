@@ -376,10 +376,9 @@ class FocusSessionNotifier extends Notifier<FocusState>
       final sessions =
           records
               .map(
-                (RecordSnapshot<String, Map<String, Object?>> record) =>
-                    FocusSession.fromJson(
-                      Map<String, dynamic>.from(record.value),
-                    ),
+                (record) => FocusSession.fromJson(
+                  Map<String, dynamic>.from(record.value),
+                ),
               )
               .toList()
             ..sort((a, b) => b.startedAt.compareTo(a.startedAt));

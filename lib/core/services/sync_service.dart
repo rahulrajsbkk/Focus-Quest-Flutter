@@ -566,9 +566,7 @@ class SyncService {
         localEqualsRemote: local == remote,
       );
       if (winner == _Winner.remote) {
-        await _sembast.focusSessions
-            .record(remote.id)
-            .put(db, remote.toJson());
+        await _sembast.focusSessions.record(remote.id).put(db, remote.toJson());
       }
     }
     _ref.invalidate(focusSessionProvider);

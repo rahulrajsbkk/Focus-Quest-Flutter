@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:focus_quest/models/quest.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
@@ -82,10 +83,9 @@ class NotificationService {
 
     await flutterLocalNotificationsPlugin.initialize(
       settings: initializationSettings,
-      onDidReceiveNotificationResponse:
-          (NotificationResponse notificationResponse) {
-            // Handle notification tap
-          },
+      onDidReceiveNotificationResponse: (notificationResponse) {
+        // Handle notification tap
+      },
     );
   }
 
@@ -278,5 +278,76 @@ class NotificationService {
   Future<void> cancelAllNotifications() async {
     if (kIsWeb) return;
     await flutterLocalNotificationsPlugin.cancelAll();
+  }
+
+  /// Schedules or updates an alarm reminder for a specific quest.
+  /// Dynamically computes the next scheduled date that is in the future.
+  Future<void> scheduleQuestAlarm(Quest quest) async {
+    if (kIsWeb) return;
+    final alarmTime = quest.reminderTime;
+    if (alarmTime == null) {
+      await cancelQuestAlarm(quest.id);
+      return;
+    }
+
+    final parts = alarmTime.split(':');
+    if (parts.length != 2) return;
+
+    final hour = int.tryParse(parts[0]);
+    final minute = int.tryParse(parts[1]);
+    if (hour == null || minute == null) return;
+
+    final now = DateTime.now();
+
+    // Find next scheduled date starting from today
+    var targetDate = quest.getNextScheduledDate(now);
+    if (targetDate == null) {
+      await cancelQuestAlarm(quest.id);
+      return;
+    }
+
+    var scheduleDateTime = DateTime(
+      targetDate.year,
+      targetDate.month,
+      targetDate.day,
+      hour,
+      minute,
+    );
+
+    // If the scheduled time is in the past, search starting from tomorrow
+    if (scheduleDateTime.isBefore(now)) {
+      targetDate = quest.getNextScheduledDate(now.add(const Duration(days: 1)));
+      if (targetDate == null) {
+        await cancelQuestAlarm(quest.id);
+        return;
+      }
+      scheduleDateTime = DateTime(
+        targetDate.year,
+        targetDate.month,
+        targetDate.day,
+        hour,
+        minute,
+      );
+    }
+
+    final id = quest.id.hashCode.abs().remainder(100000000);
+    const title = 'Quest Reminder';
+    final body = quest.description != null && quest.description!.isNotEmpty
+        ? '${quest.title}\n${quest.description}'
+        : quest.title;
+
+    await scheduleNotification(
+      id: id,
+      title: title,
+      body: body,
+      scheduleDate: scheduleDateTime,
+    );
+  }
+
+  /// Cancels any scheduled alarm reminder for a specific quest.
+  Future<void> cancelQuestAlarm(String questId) async {
+    if (kIsWeb) return;
+    final id = questId.hashCode.abs().remainder(100000000);
+    await cancelNotification(id);
   }
 }

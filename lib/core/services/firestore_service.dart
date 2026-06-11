@@ -314,8 +314,7 @@ class FirestoreService {
     if (serverTs is Timestamp) {
       final serverIso = serverTs.toDate().toIso8601String();
       final clientUpdatedAt = data['updatedAt'] as String?;
-      if (clientUpdatedAt == null ||
-          clientUpdatedAt.compareTo(serverIso) < 0) {
+      if (clientUpdatedAt == null || clientUpdatedAt.compareTo(serverIso) < 0) {
         data['updatedAt'] = serverIso;
       }
     }

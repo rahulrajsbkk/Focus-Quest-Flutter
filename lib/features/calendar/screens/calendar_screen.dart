@@ -53,6 +53,8 @@ class CalendarScreen extends ConsumerWidget {
             if (a.isCompleted != b.isCompleted) {
               return a.isCompleted ? 1 : -1;
             }
+            final orderCompare = a.sortOrder.compareTo(b.sortOrder);
+            if (orderCompare != 0) return orderCompare;
             return b.createdAt.compareTo(a.createdAt);
           });
 

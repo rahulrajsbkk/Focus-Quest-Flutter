@@ -115,6 +115,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             if (a.isCompleted != b.isCompleted) {
               return a.isCompleted ? 1 : -1; // Uncompleted first
             }
+            final orderCompare = a.sortOrder.compareTo(b.sortOrder);
+            if (orderCompare != 0) return orderCompare;
             return b.createdAt.compareTo(a.createdAt);
           });
 
@@ -316,11 +318,40 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         .read(questListProvider.notifier)
                         .deleteQuest(quest.id);
                   },
-                  onStartTimer: (Quest quest) {
+                  onStartTimer: (quest) {
                     // Select the quest for timer and navigate to timer tab
                     ref.read(focusSessionProvider.notifier).selectQuest(quest);
                     // Navigate to timer tab (index 3)
                     ref.read(navigationProvider.notifier).setIndex(3);
+                  },
+                  // onReorderItem provides a newIndex that is already
+                  // adjusted for the removed item at oldIndex.
+                  onReorder: (oldIndex, newIndex) async {
+                    if (oldIndex == newIndex) return;
+
+                    final dragged = dailyQuests[oldIndex];
+                    final target = dailyQuests[newIndex];
+
+                    // Enforce boundary: only allow reordering within
+                    // active vs completed sections
+                    if (dragged.isCompleted != target.isCompleted) {
+                      return;
+                    }
+
+                    // Create the new visual list
+                    final reorderedList = List<Quest>.from(dailyQuests);
+                    final item = reorderedList.removeAt(oldIndex);
+                    reorderedList.insert(newIndex, item);
+
+                    // Filter list to only include items of the same
+                    // completion status to determine their new sortOrder.
+                    final sameStatusReordered = reorderedList
+                        .where((q) => q.isCompleted == dragged.isCompleted)
+                        .toList();
+
+                    await ref
+                        .read(questListProvider.notifier)
+                        .updateQuestOrder(sameStatusReordered);
                   },
                 ),
               ),
