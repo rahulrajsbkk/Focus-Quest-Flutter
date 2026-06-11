@@ -24,6 +24,14 @@ service cloud.firestore {
       match /progress/{documentId} {
         allow read, write: if isOwner(userId);
       }
+
+      // NOTE: Firestore default-denies unmatched paths. When the app adds a
+      // new users/{userId} subcollection, add a block here and redeploy
+      // (firebase deploy --only firestore:rules) or every read/write to it
+      // will fail with permission-denied.
+      match /activity_events/{eventId} {
+        allow read, write: if isOwner(userId);
+      }
     }
   }
 }
