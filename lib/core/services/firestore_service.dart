@@ -39,7 +39,7 @@ class FirestoreService {
   Future<AppUser?> getUser(String userId) async {
     final doc = await _firestore.collection('users').doc(userId).get();
     if (!doc.exists) return null;
-    return AppUser.fromJson(doc.data()!);
+    return AppUser.fromJson(_stripInternalFields(doc.data()!));
   }
 
   // MARK: - Quests

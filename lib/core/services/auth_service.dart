@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:focus_quest/core/services/firestore_service.dart';
 import 'package:focus_quest/core/services/preference_storage_service.dart';
 import 'package:focus_quest/models/app_user.dart';
@@ -86,9 +87,7 @@ class AuthService {
           final userCredential = await _auth.signInWithCredential(credential);
           final firebaseUser = userCredential.user!;
           await _prefs.remove(_kGuestUserKey);
-          final appUser = _firebaseToAppUser(firebaseUser);
-          await _ensureUserDoc(appUser);
-          return appUser;
+          return _ensureUserDoc(_firebaseToAppUser(firebaseUser));
         } else {
           // On web, authenticate() is not supported
           // User must use the sign-in button widget or FedCM flow
@@ -120,9 +119,7 @@ class AuthService {
       // Clear guest user if exists
       await _prefs.remove(_kGuestUserKey);
 
-      final appUser = _firebaseToAppUser(user);
-      await _ensureUserDoc(appUser);
-      return appUser;
+      return _ensureUserDoc(_firebaseToAppUser(user));
     } on GoogleSignInException catch (e) {
       throw Exception('Google Sign-In error: ${e.code} - ${e.description}');
     } on FirebaseAuthException catch (e) {
@@ -140,9 +137,7 @@ class AuthService {
       );
       final user = userCredential.user!;
       await _prefs.remove(_kGuestUserKey);
-      final appUser = _firebaseToAppUser(user);
-      await _ensureUserDoc(appUser);
-      return appUser;
+      return _ensureUserDoc(_firebaseToAppUser(user));
     } on FirebaseAuthException catch (e) {
       throw Exception('Firebase Auth error: ${e.message}');
     }
@@ -203,16 +198,42 @@ class AuthService {
     }
   }
 
-  /// Best-effort Firestore user-doc upsert. We intentionally swallow errors
-  /// here so a transient Firestore failure during sign-in does not block the
-  /// user from entering the app — the doc will be re-upserted on the next
-  /// settings change or sync.
-  Future<void> _ensureUserDoc(AppUser user) async {
+  /// Merges remote-authoritative settings (isSyncEnabled,
+  /// isGamificationEnabled) from the Firestore user doc onto [base].
+  /// Firebase Auth stays authoritative for identity fields. Returns null for
+  /// guests, missing docs, or fetch failures (offline) — callers keep their
+  /// local defaults in that case.
+  Future<AppUser?> fetchMergedRemoteUser(AppUser base) async {
+    if (base.isGuest) return null;
     try {
-      await _firestore.saveUser(user);
+      final remote = await _firestore
+          .getUser(base.id)
+          .timeout(const Duration(seconds: 8));
+      if (remote == null) return null;
+      return base.copyWith(
+        isSyncEnabled: remote.isSyncEnabled,
+        isGamificationEnabled: remote.isGamificationEnabled,
+      );
+    } on Object catch (e) {
+      debugPrint('fetchMergedRemoteUser failed: $e');
+      return null;
+    }
+  }
+
+  /// Best-effort user-doc round-trip at sign-in: pull remote-authoritative
+  /// settings first (so this device can't clobber toggles chosen on another
+  /// device), then upsert the doc. Errors are swallowed so a transient
+  /// Firestore failure during sign-in does not block the user from entering
+  /// the app — the doc will be re-upserted on the next settings change or
+  /// sync.
+  Future<AppUser> _ensureUserDoc(AppUser user) async {
+    final effective = await fetchMergedRemoteUser(user) ?? user;
+    try {
+      await _firestore.saveUser(effective);
     } on Object {
       // Logged inside FirestoreService.
     }
+    return effective;
   }
 
   AppUser _firebaseToAppUser(User user) {
@@ -222,6 +243,9 @@ class AuthService {
       photoUrl: user.photoURL ?? '',
       email: user.email,
       isGuest: false,
+      // Product default for signed-in users. The Firestore user doc is the
+      // source of truth for settings; fetchMergedRemoteUser overrides these
+      // at sign-in and bootstrap when the doc exists.
       isSyncEnabled: true,
     );
   }

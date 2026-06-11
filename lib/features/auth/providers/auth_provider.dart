@@ -81,8 +81,23 @@ class AuthNotifier extends AsyncNotifier<AppUser?> {
     }
   }
 
-  Future<void> _bootstrapSync(AppUser user) async {
-    final sync = ref.read(syncServiceProvider);
+  Future<void> _bootstrapSync(
+    AppUser user, {
+    bool hydrateSettings = true,
+  }) async {
+    var effective = user;
+    if (hydrateSettings) {
+      // The Firestore user doc is the source of truth for settings — pull it
+      // so a fresh install/sign-in respects toggles chosen on other devices.
+      final merged = await _authService.fetchMergedRemoteUser(user);
+      if (merged != null && merged != user) {
+        effective = merged;
+        state = AsyncValue.data(merged);
+      }
+    }
+    final sync = ref.read(syncServiceProvider)..user = effective;
+    // Remote settings may say sync is off for this account.
+    if (!effective.isSyncEnabled) return;
     // H1: full sync must complete before real-time streams start so we
     // don't interleave incoming writes with two-way reconciliation.
     await sync.flushOutbox();
@@ -169,7 +184,9 @@ class AuthNotifier extends AsyncNotifier<AppUser?> {
     // Handle sync-enabled toggle (settings change, not user change).
     if (isSyncEnabled != null && isSyncEnabled != currentUser.isSyncEnabled) {
       if (isSyncEnabled) {
-        await _bootstrapSync(updatedUser);
+        // Skip hydration: an explicit local toggle must not be overridden
+        // by a stale remote doc (updateLocalUser pushed it above).
+        await _bootstrapSync(updatedUser, hydrateSettings: false);
       } else {
         ref.read(syncServiceProvider).stopRealTimeSync();
       }
