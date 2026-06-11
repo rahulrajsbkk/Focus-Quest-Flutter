@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:focus_quest/core/services/firestore_service.dart';
-import 'package:focus_quest/features/auth/providers/auth_provider.dart';
 import 'package:focus_quest/features/journal/providers/journal_provider.dart';
 import 'package:focus_quest/features/profile/providers/activity_stats_provider.dart';
 import 'package:focus_quest/features/profile/providers/user_progress_provider.dart';
@@ -48,9 +47,16 @@ class SyncService {
   // bursts (M6). 300ms collapses the typical backfill into one rebuild.
   Timer? _progressInvalidateDebounce;
 
-  AppUser? get _currentUser => _ref.read(authProvider).value;
-  bool get _isSyncEnabled => _currentUser?.isSyncEnabled ?? false;
-  String? get _userId => _currentUser?.id;
+  /// The identity used by every sync guard (null = signed out). AuthNotifier
+  /// sets this on cold start, on every user transition, and on settings
+  /// changes — BEFORE any flush/full-sync/stream-start for that user. Never
+  /// read authProvider here instead: its AsyncValue is null during
+  /// build()/loading windows, which made every cold-start sync silently
+  /// no-op.
+  AppUser? user;
+
+  bool get _isSyncEnabled => user?.isSyncEnabled ?? false;
+  String? get _userId => user?.id;
 
   /// Starts listening to Firestore streams for real-time updates.
   /// Idempotent: calling twice stops the previous subscriptions first.
@@ -62,23 +68,42 @@ class SyncService {
 
     _subscriptions
       ..add(
-        _firestore.getQuestsStream(_userId!).listen(_handleIncomingQuests),
+        _firestore
+            .getQuestsStream(_userId!)
+            .listen(_handleIncomingQuests, onError: _logStreamError('quests')),
       )
       ..add(
         _firestore
             .getFocusSessionsStream(_userId!)
-            .listen(_handleIncomingFocusSessions),
+            .listen(
+              _handleIncomingFocusSessions,
+              onError: _logStreamError('sessions'),
+            ),
       )
       ..add(
         _firestore
             .getJournalEntriesStream(_userId!)
-            .listen(_handleIncomingJournalEntries),
+            .listen(
+              _handleIncomingJournalEntries,
+              onError: _logStreamError('journal'),
+            ),
       )
       ..add(
         _firestore
             .getUserActivityEventsStream(_userId!)
-            .listen(_handleIncomingUserActivityEvents),
+            .listen(
+              _handleIncomingUserActivityEvents,
+              onError: _logStreamError('events'),
+            ),
       );
+  }
+
+  /// Without an onError handler a single stream error (e.g.
+  /// permission-denied) kills the subscription silently and surfaces as an
+  /// unhandled async error. Full sync at next launch / Sync Now reconciles.
+  void Function(Object, StackTrace) _logStreamError(String label) {
+    return (Object e, StackTrace s) =>
+        debugPrint('Sync stream error ($label): $e');
   }
 
   /// Stops all real-time sync subscriptions.

@@ -36,10 +36,15 @@ class AuthNotifier extends AsyncNotifier<AppUser?> {
     // Make sure provider reads that happen during this same frame target
     // the correct user's local database.
     await SembastService().setActiveUser(initial?.id);
+    ref.read(syncServiceProvider).user = initial;
     _initialized = true;
 
     // Bootstrap sync (full sync + start streams) for the initial user.
     if (initial != null && initial.isSyncEnabled) {
+      // Expose the user before the microtask runs so anything reading
+      // authProvider during bootstrap already sees AsyncData (build()
+      // alone only sets state once this future completes).
+      state = AsyncValue.data(initial);
       // Defer past build() so we don't invalidate providers mid-build.
       unawaited(Future.microtask(() => _bootstrapSync(initial)));
     }
@@ -69,6 +74,7 @@ class AuthNotifier extends AsyncNotifier<AppUser?> {
       debugPrint('Auth transition: stopRealTimeSync error: $e');
     }
     await SembastService().setActiveUser(newUser?.id);
+    ref.read(syncServiceProvider).user = newUser;
     _invalidateUserScopedProviders();
     if (newUser != null && newUser.isSyncEnabled) {
       await _bootstrapSync(newUser);
@@ -158,6 +164,7 @@ class AuthNotifier extends AsyncNotifier<AppUser?> {
 
     await _authService.updateLocalUser(updatedUser);
     state = AsyncValue.data(updatedUser);
+    ref.read(syncServiceProvider).user = updatedUser;
 
     // Handle sync-enabled toggle (settings change, not user change).
     if (isSyncEnabled != null && isSyncEnabled != currentUser.isSyncEnabled) {
