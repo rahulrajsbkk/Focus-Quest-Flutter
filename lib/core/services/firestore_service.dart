@@ -13,6 +13,11 @@ import 'package:focus_quest/models/user_progress.dart';
 /// because it removes client-clock skew from the equation.
 const String _serverUpdatedAtField = '_serverUpdatedAt';
 
+/// A query snapshot mapped to models, retaining whether it was served from
+/// the local Firestore cache. Cache snapshots can be stale or empty and must
+/// never drive local deletes in the sync layer.
+typedef RemoteSnapshot<T> = ({List<T> items, bool isFromCache});
+
 class FirestoreService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
@@ -60,19 +65,23 @@ class FirestoreService {
         .toList();
   }
 
-  Stream<List<Quest>> getQuestsStream(String userId) {
+  Stream<RemoteSnapshot<Quest>> getQuestsStream(String userId) {
     return _firestore
         .collection('users')
         .doc(userId)
         .collection('quests')
         .snapshots()
         .map(
-          (snapshot) => snapshot.docs
-              .map(
-                (doc) => _parseDoc(doc.id, doc.data(), Quest.fromJson, 'quest'),
-              )
-              .whereType<Quest>()
-              .toList(),
+          (snapshot) => (
+            items: snapshot.docs
+                .map(
+                  (doc) =>
+                      _parseDoc(doc.id, doc.data(), Quest.fromJson, 'quest'),
+                )
+                .whereType<Quest>()
+                .toList(),
+            isFromCache: snapshot.metadata.isFromCache,
+          ),
         );
   }
 
@@ -120,24 +129,27 @@ class FirestoreService {
         .toList();
   }
 
-  Stream<List<FocusSession>> getFocusSessionsStream(String userId) {
+  Stream<RemoteSnapshot<FocusSession>> getFocusSessionsStream(String userId) {
     return _firestore
         .collection('users')
         .doc(userId)
         .collection('focus_sessions')
         .snapshots()
         .map(
-          (snapshot) => snapshot.docs
-              .map(
-                (doc) => _parseDoc(
-                  doc.id,
-                  doc.data(),
-                  FocusSession.fromJson,
-                  'session',
-                ),
-              )
-              .whereType<FocusSession>()
-              .toList(),
+          (snapshot) => (
+            items: snapshot.docs
+                .map(
+                  (doc) => _parseDoc(
+                    doc.id,
+                    doc.data(),
+                    FocusSession.fromJson,
+                    'session',
+                  ),
+                )
+                .whereType<FocusSession>()
+                .toList(),
+            isFromCache: snapshot.metadata.isFromCache,
+          ),
         );
   }
 
@@ -176,24 +188,27 @@ class FirestoreService {
         .toList();
   }
 
-  Stream<List<JournalEntry>> getJournalEntriesStream(String userId) {
+  Stream<RemoteSnapshot<JournalEntry>> getJournalEntriesStream(String userId) {
     return _firestore
         .collection('users')
         .doc(userId)
         .collection('journal_entries')
         .snapshots()
         .map(
-          (snapshot) => snapshot.docs
-              .map(
-                (doc) => _parseDoc(
-                  doc.id,
-                  doc.data(),
-                  JournalEntry.fromJson,
-                  'entry',
-                ),
-              )
-              .whereType<JournalEntry>()
-              .toList(),
+          (snapshot) => (
+            items: snapshot.docs
+                .map(
+                  (doc) => _parseDoc(
+                    doc.id,
+                    doc.data(),
+                    JournalEntry.fromJson,
+                    'entry',
+                  ),
+                )
+                .whereType<JournalEntry>()
+                .toList(),
+            isFromCache: snapshot.metadata.isFromCache,
+          ),
         );
   }
 
@@ -254,7 +269,9 @@ class FirestoreService {
         .toList();
   }
 
-  Stream<List<UserActivityEvent>> getUserActivityEventsStream(String userId) {
+  Stream<RemoteSnapshot<UserActivityEvent>> getUserActivityEventsStream(
+    String userId,
+  ) {
     return _firestore
         .collection('users')
         .doc(userId)
@@ -262,17 +279,20 @@ class FirestoreService {
         .orderBy('occurredAt', descending: true)
         .snapshots()
         .map(
-          (snapshot) => snapshot.docs
-              .map(
-                (doc) => _parseDoc(
-                  doc.id,
-                  doc.data(),
-                  UserActivityEvent.fromJson,
-                  'activity event',
-                ),
-              )
-              .whereType<UserActivityEvent>()
-              .toList(),
+          (snapshot) => (
+            items: snapshot.docs
+                .map(
+                  (doc) => _parseDoc(
+                    doc.id,
+                    doc.data(),
+                    UserActivityEvent.fromJson,
+                    'activity event',
+                  ),
+                )
+                .whereType<UserActivityEvent>()
+                .toList(),
+            isFromCache: snapshot.metadata.isFromCache,
+          ),
         );
   }
 

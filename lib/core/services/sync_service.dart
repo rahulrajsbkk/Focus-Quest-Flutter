@@ -526,19 +526,24 @@ class SyncService {
     return hasPut || hasDel;
   }
 
-  Future<void> _handleIncomingQuests(List<Quest> remoteQuests) async {
+  Future<void> _handleIncomingQuests(RemoteSnapshot<Quest> snapshot) async {
+    final remoteQuests = snapshot.items;
     debugPrint('Sync: Received ${remoteQuests.length} quests');
     final db = await _sembast.database;
     final remoteIds = {for (final q in remoteQuests) q.id};
 
     // C5: propagate cross-device deletes — drop local records that have
     // been previously synced (not pending in outbox) and no longer exist
-    // remotely.
-    final localRecords = await _sembast.quests.find(db);
-    for (final r in localRecords) {
-      if (!remoteIds.contains(r.key) &&
-          !await _isPendingInOutbox(_SyncEntity.quest, r.key)) {
-        await _sembast.quests.record(r.key).delete(db);
+    // remotely. Never act on cache snapshots: they can be stale or empty
+    // (cold cache before the first server round-trip) and would wrongly
+    // delete local-only records.
+    if (!snapshot.isFromCache) {
+      final localRecords = await _sembast.quests.find(db);
+      for (final r in localRecords) {
+        if (!remoteIds.contains(r.key) &&
+            !await _isPendingInOutbox(_SyncEntity.quest, r.key)) {
+          await _sembast.quests.record(r.key).delete(db);
+        }
       }
     }
 
@@ -562,17 +567,21 @@ class SyncService {
   }
 
   Future<void> _handleIncomingFocusSessions(
-    List<FocusSession> remoteSessions,
+    RemoteSnapshot<FocusSession> snapshot,
   ) async {
+    final remoteSessions = snapshot.items;
     debugPrint('Sync: Received ${remoteSessions.length} sessions');
     final db = await _sembast.database;
     final remoteIds = {for (final s in remoteSessions) s.id};
 
-    final localRecords = await _sembast.focusSessions.find(db);
-    for (final r in localRecords) {
-      if (!remoteIds.contains(r.key) &&
-          !await _isPendingInOutbox(_SyncEntity.focusSession, r.key)) {
-        await _sembast.focusSessions.record(r.key).delete(db);
+    // See _handleIncomingQuests: deletes only on server-confirmed snapshots.
+    if (!snapshot.isFromCache) {
+      final localRecords = await _sembast.focusSessions.find(db);
+      for (final r in localRecords) {
+        if (!remoteIds.contains(r.key) &&
+            !await _isPendingInOutbox(_SyncEntity.focusSession, r.key)) {
+          await _sembast.focusSessions.record(r.key).delete(db);
+        }
       }
     }
 
@@ -598,17 +607,21 @@ class SyncService {
   }
 
   Future<void> _handleIncomingJournalEntries(
-    List<JournalEntry> remoteEntries,
+    RemoteSnapshot<JournalEntry> snapshot,
   ) async {
+    final remoteEntries = snapshot.items;
     debugPrint('Sync: Received ${remoteEntries.length} entries');
     final db = await _sembast.database;
     final remoteIds = {for (final e in remoteEntries) e.id};
 
-    final localRecords = await _sembast.journalEntries.find(db);
-    for (final r in localRecords) {
-      if (!remoteIds.contains(r.key) &&
-          !await _isPendingInOutbox(_SyncEntity.journalEntry, r.key)) {
-        await _sembast.journalEntries.record(r.key).delete(db);
+    // See _handleIncomingQuests: deletes only on server-confirmed snapshots.
+    if (!snapshot.isFromCache) {
+      final localRecords = await _sembast.journalEntries.find(db);
+      for (final r in localRecords) {
+        if (!remoteIds.contains(r.key) &&
+            !await _isPendingInOutbox(_SyncEntity.journalEntry, r.key)) {
+          await _sembast.journalEntries.record(r.key).delete(db);
+        }
       }
     }
 
@@ -638,8 +651,11 @@ class SyncService {
   }
 
   Future<void> _handleIncomingUserActivityEvents(
-    List<UserActivityEvent> remoteEvents,
+    RemoteSnapshot<UserActivityEvent> snapshot,
   ) async {
+    // Events are immutable and never deleted, so isFromCache is irrelevant
+    // here — both cache and server snapshots only ever add records.
+    final remoteEvents = snapshot.items;
     debugPrint('Sync: Received ${remoteEvents.length} events');
     final db = await _sembast.database;
     for (final remote in remoteEvents) {
