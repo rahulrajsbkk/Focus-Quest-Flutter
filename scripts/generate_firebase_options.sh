@@ -1,6 +1,32 @@
 #!/bin/bash
 set -e
 
+# Load environment variables from .env if it exists
+if [ -f .env ]; then
+  echo "Loading environment variables from .env..."
+  while IFS= read -r line || [ -n "$line" ]; do
+    # Strip carriage returns (Windows/DOS line endings support)
+    line=$(echo "$line" | tr -d '\r')
+    # Skip comments and empty lines
+    case "$line" in
+      \#*|"") continue ;;
+    esac
+    
+    # Split at the first '='
+    key=$(echo "$line" | cut -d'=' -f1 | xargs)
+    val=$(echo "$line" | cut -d'=' -f2- | xargs)
+    
+    # Strip surrounding quotes from value if present
+    val=$(echo "$val" | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
+    
+    # Only set if not already set in shell environment
+    eval "current_val=\"\${$key}\""
+    if [ -z "$current_val" ]; then
+      export "$key=$val"
+    fi
+  done < .env
+fi
+
 echo "Generating lib/firebase_options.dart from environment variables..."
 
 # This script runs in the web deploy pipeline, so the web Firebase config is
@@ -109,35 +135,38 @@ EOF
 
 echo "lib/firebase_options.dart generated successfully."
 
-echo "Generating .env file..."
-# List of keys that must be present in .env
-KEYS=(
-  "FIREBASE_API_KEY_WEB"
-  "FIREBASE_APP_ID_WEB"
-  "FIREBASE_MESSAGING_SENDER_ID"
-  "FIREBASE_PROJECT_ID"
-  "FIREBASE_AUTH_DOMAIN"
-  "FIREBASE_STORAGE_BUCKET"
-  "FIREBASE_MEASUREMENT_ID"
-  "FIREBASE_API_KEY_ANDROID"
-  "FIREBASE_APP_ID_ANDROID"
-  "FIREBASE_API_KEY_IOS"
-  "FIREBASE_APP_ID_IOS"
-  "FIREBASE_IOS_CLIENT_ID"
-  "FIREBASE_IOS_BUNDLE_ID"
-  "FIREBASE_APP_ID_WINDOWS"
-  "FIREBASE_MEASUREMENT_ID_WINDOWS"
-)
+# Regenerate .env only if running in Vercel or .env does not exist.
+# This prevents overwriting local .env configurations (e.g. Android signing keys) during development.
+if [ "$VERCEL" = "1" ] || [ ! -f .env ]; then
+  echo "Generating .env file..."
+  KEYS="
+    FIREBASE_API_KEY_WEB
+    FIREBASE_APP_ID_WEB
+    FIREBASE_MESSAGING_SENDER_ID
+    FIREBASE_PROJECT_ID
+    FIREBASE_AUTH_DOMAIN
+    FIREBASE_STORAGE_BUCKET
+    FIREBASE_MEASUREMENT_ID
+    FIREBASE_API_KEY_ANDROID
+    FIREBASE_APP_ID_ANDROID
+    FIREBASE_API_KEY_IOS
+    FIREBASE_APP_ID_IOS
+    FIREBASE_IOS_CLIENT_ID
+    FIREBASE_IOS_BUNDLE_ID
+    FIREBASE_APP_ID_WINDOWS
+    FIREBASE_MEASUREMENT_ID_WINDOWS
+  "
 
-# Ensure .env is empty or created
-touch .env
-truncate -s 0 .env
+  touch .env
+  truncate -s 0 .env
 
-for key in "${KEYS[@]}"; do
-  value="${!key}"
-  if [ -n "$value" ]; then
-    echo "$key=$value" >> .env
-  fi
-done
-
-echo ".env generated successfully."
+  for key in $KEYS; do
+    eval value="\\$$key"
+    if [ -n "$value" ]; then
+      echo "$key=$value" >> .env
+    fi
+  done
+  echo ".env generated successfully."
+else
+  echo "Existing .env file detected and not in Vercel. Skipping .env regeneration to preserve local variables."
+fi
