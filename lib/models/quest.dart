@@ -495,54 +495,89 @@ class Quest {
 
   /// Calculates the current streak based on completionNotes.
   /// This can be used to recover or verify the stored streak.
-  int calculateStreak() {
+  ///
+  /// Daily quests count consecutive scheduled days — days the quest isn't
+  /// scheduled on (unselected weekdays, skipped dates) are neutral and
+  /// don't break the streak. Weekly and monthly quests count consecutive
+  /// calendar periods (weeks/months) with at least one completion. The
+  /// current occurrence gets a grace period: a day/week/month that isn't
+  /// over yet doesn't break the streak, but a missed occurrence in the
+  /// past does.
+  int calculateStreak({DateTime? now}) {
     if (!isRepeating || completionNotes.isEmpty) return 0;
 
-    final sortedDates = completionNotes.keys.toList()..sort();
-    if (sortedDates.isEmpty) return 0;
+    final reference = now ?? DateTime.now();
+    final today = DateTime(reference.year, reference.month, reference.day);
 
+    switch (repeatFrequency) {
+      case RepeatFrequency.none:
+        return 0;
+      case RepeatFrequency.daily:
+        return _calculateDailyStreak(today);
+      case RepeatFrequency.weekly:
+        return _calculatePeriodStreak(today, _weekIndex);
+      case RepeatFrequency.monthly:
+        return _calculatePeriodStreak(today, _monthIndex);
+    }
+  }
+
+  int _calculateDailyStreak(DateTime today) {
+    final start = DateTime(createdAt.year, createdAt.month, createdAt.day);
     var streak = 0;
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
     var checkDate = today;
 
-    // A streak is valid if completed today OR yesterday (if not yet completed)
-    final mToday = today.month.toString().padLeft(2, '0');
-    final dToday = today.day.toString().padLeft(2, '0');
-    final todayKey = '${today.year}-$mToday-$dToday';
-
-    final yesterday = today.subtract(const Duration(days: 1));
-    final mYesterday = yesterday.month.toString().padLeft(2, '0');
-    final dYesterday = yesterday.day.toString().padLeft(2, '0');
-    final yesterdayKey = '${yesterday.year}-$mYesterday-$dYesterday';
-
-    if (!completionNotes.containsKey(todayKey) &&
-        !completionNotes.containsKey(yesterdayKey)) {
-      return 0;
-    }
-
-    if (!completionNotes.containsKey(todayKey)) {
-      checkDate = yesterday;
-    }
-
-    while (true) {
-      final mKey = checkDate.month.toString().padLeft(2, '0');
-      final dKey = checkDate.day.toString().padLeft(2, '0');
-      final key = '${checkDate.year}-$mKey-$dKey';
-
-      if (completionNotes.containsKey(key)) {
+    while (!checkDate.isBefore(start)) {
+      if (completionNotes.containsKey(_formatDateKey(checkDate))) {
         streak++;
-        checkDate = checkDate.subtract(const Duration(days: 1));
-      } else {
-        // For daily quests, a gap breaks the streak.
-        // For other repeat frequencies, we might need different logic,
-        // but let's stick to daily continuity for now.
+      } else if (isScheduledForDate(checkDate) &&
+          !_isSameDay(checkDate, today)) {
+        // A missed scheduled day in the past breaks the streak; today is
+        // still in progress, so it stays neutral until completed.
         break;
       }
+      // Unscheduled, uncompleted days are neutral.
+      checkDate = checkDate.subtract(const Duration(days: 1));
     }
 
     return streak;
   }
+
+  int _calculatePeriodStreak(DateTime today, int Function(DateTime) periodOf) {
+    final completedPeriods = <int>{};
+    for (final key in completionNotes.keys) {
+      final date = DateTime.tryParse(key);
+      if (date != null) {
+        completedPeriods.add(periodOf(date));
+      }
+    }
+    if (completedPeriods.isEmpty) return 0;
+
+    var period = periodOf(today);
+    if (!completedPeriods.contains(period)) {
+      // The current period isn't over yet — grace, count from the previous.
+      period--;
+    }
+
+    var streak = 0;
+    while (completedPeriods.contains(period)) {
+      streak++;
+      period--;
+    }
+
+    return streak;
+  }
+
+  /// Index of the Monday-aligned week containing [date], counted from
+  /// 1970-01-05 (the first Monday of 1970). Computed in UTC so the index
+  /// is stable across DST transitions.
+  static int _weekIndex(DateTime date) {
+    final day = DateTime.utc(date.year, date.month, date.day);
+    final monday = day.subtract(Duration(days: day.weekday - 1));
+    return monday.difference(DateTime.utc(1970, 1, 5)).inDays ~/ 7;
+  }
+
+  /// Index of the calendar month containing [date].
+  static int _monthIndex(DateTime date) => date.year * 12 + date.month - 1;
 
   /// Gets the next scheduled date for this quest, starting from the given
   /// date (inclusive). If start date is today, and the quest is already

@@ -616,18 +616,17 @@ class FocusSessionNotifier extends Notifier<FocusState>
         totalTimeToday += completedSession.elapsedDuration;
         focusSessionsInCycle++;
 
-        // Update progress system ONLY if linked to a quest
-        if (completedSession.questId != null) {
-          unawaited(
-            ref
-                .read(userProgressProvider.notifier)
-                .completeFocusSession(
-                  completedSession.elapsedDuration,
-                  questId: completedSession.questId,
-                  subQuestId: completedSession.subQuestId,
-                ),
-          );
-        }
+        // Award XP and streak credit for every completed focus session,
+        // whether or not it is linked to a quest.
+        unawaited(
+          ref
+              .read(userProgressProvider.notifier)
+              .completeFocusSession(
+                completedSession.elapsedDuration,
+                questId: completedSession.questId,
+                subQuestId: completedSession.subQuestId,
+              ),
+        );
       } else {
         // Break completed, reset focusSessionsInCycle if it reached limit
         if (focusSessionsInCycle >= PomodoroDefaults.sessionsBeforeLongBreak) {
@@ -643,7 +642,6 @@ class FocusSessionNotifier extends Notifier<FocusState>
         focusSessionsInCycle: focusSessionsInCycle,
       );
 
-      _stopTicking();
       _stopTicking();
       unawaited(NotificationService().cancelAllNotifications());
       unawaited(NotificationService().cancelNotification(998));

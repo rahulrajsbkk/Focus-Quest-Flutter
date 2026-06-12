@@ -399,6 +399,220 @@ void main() {
       });
     });
 
+    group('calculateStreak', () {
+      // 2025-06-12 is a Thursday.
+      final today = DateTime(2025, 6, 12);
+
+      String key(DateTime date) {
+        final m = date.month.toString().padLeft(2, '0');
+        final d = date.day.toString().padLeft(2, '0');
+        return '${date.year}-$m-$d';
+      }
+
+      Map<String, String> notesFor(List<DateTime> dates) {
+        return {for (final date in dates) key(date): ''};
+      }
+
+      test('returns 0 for non-repeating quests', () {
+        final quest = testQuest.copyWith(
+          completionNotes: notesFor([today]),
+        );
+
+        expect(quest.calculateStreak(now: today), 0);
+      });
+
+      test('returns 0 when there are no completions', () {
+        final quest = testQuest.copyWith(
+          repeatFrequency: RepeatFrequency.daily,
+        );
+
+        expect(quest.calculateStreak(now: today), 0);
+      });
+
+      test('daily: counts consecutive days including today', () {
+        final quest = testQuest.copyWith(
+          repeatFrequency: RepeatFrequency.daily,
+          completionNotes: notesFor([
+            today,
+            today.subtract(const Duration(days: 1)),
+            today.subtract(const Duration(days: 2)),
+          ]),
+        );
+
+        expect(quest.calculateStreak(now: today), 3);
+      });
+
+      test('daily: today still pending does not break the streak', () {
+        final quest = testQuest.copyWith(
+          repeatFrequency: RepeatFrequency.daily,
+          completionNotes: notesFor([
+            today.subtract(const Duration(days: 1)),
+            today.subtract(const Duration(days: 2)),
+          ]),
+        );
+
+        expect(quest.calculateStreak(now: today), 2);
+      });
+
+      test('daily: a missed day before today breaks the streak', () {
+        final quest = testQuest.copyWith(
+          repeatFrequency: RepeatFrequency.daily,
+          completionNotes: notesFor([
+            today,
+            // Yesterday missing
+            today.subtract(const Duration(days: 2)),
+          ]),
+        );
+
+        expect(quest.calculateStreak(now: today), 1);
+      });
+
+      test('daily: returns 0 when last completion was days ago', () {
+        final quest = testQuest.copyWith(
+          repeatFrequency: RepeatFrequency.daily,
+          completionNotes: notesFor([
+            today.subtract(const Duration(days: 3)),
+            today.subtract(const Duration(days: 4)),
+          ]),
+        );
+
+        expect(quest.calculateStreak(now: today), 0);
+      });
+
+      test('daily with repeatDays: unscheduled days are neutral', () {
+        // Mon/Wed/Fri quest checked on Thursday: Mon 9th, Wed 11th and
+        // Fri 6th completed — Tue/Thu/weekend don't break the streak.
+        final quest = testQuest.copyWith(
+          repeatFrequency: RepeatFrequency.daily,
+          repeatDays: {Weekday.monday, Weekday.wednesday, Weekday.friday},
+          completionNotes: notesFor([
+            DateTime(2025, 6, 11),
+            DateTime(2025, 6, 9),
+            DateTime(2025, 6, 6),
+          ]),
+        );
+
+        expect(quest.calculateStreak(now: today), 3);
+      });
+
+      test('daily with repeatDays: a missed scheduled day breaks it', () {
+        // Mon/Wed/Fri quest checked on Thursday with Wednesday missed.
+        final quest = testQuest.copyWith(
+          repeatFrequency: RepeatFrequency.daily,
+          repeatDays: {Weekday.monday, Weekday.wednesday, Weekday.friday},
+          completionNotes: notesFor([
+            DateTime(2025, 6, 9),
+            DateTime(2025, 6, 6),
+          ]),
+        );
+
+        expect(quest.calculateStreak(now: today), 0);
+      });
+
+      test('daily with repeatDays: pending scheduled today is neutral', () {
+        // Same quest checked on Wednesday before completing it.
+        final quest = testQuest.copyWith(
+          repeatFrequency: RepeatFrequency.daily,
+          repeatDays: {Weekday.monday, Weekday.wednesday, Weekday.friday},
+          completionNotes: notesFor([
+            DateTime(2025, 6, 9),
+            DateTime(2025, 6, 6),
+          ]),
+        );
+
+        expect(quest.calculateStreak(now: DateTime(2025, 6, 11)), 2);
+      });
+
+      test('daily: skipped dates are neutral', () {
+        final quest = testQuest.copyWith(
+          repeatFrequency: RepeatFrequency.daily,
+          skippedDates: [today.subtract(const Duration(days: 1))],
+          completionNotes: notesFor([
+            today,
+            today.subtract(const Duration(days: 2)),
+          ]),
+        );
+
+        expect(quest.calculateStreak(now: today), 2);
+      });
+
+      test('weekly: counts consecutive weeks with a completion', () {
+        final quest = testQuest.copyWith(
+          repeatFrequency: RepeatFrequency.weekly,
+          completionNotes: notesFor([
+            DateTime(2025, 6, 10), // This week (9-15 Jun)
+            DateTime(2025, 6, 4), //  Last week (2-8 Jun)
+            DateTime(2025, 5, 26), // Week before (26 May - 1 Jun)
+          ]),
+        );
+
+        expect(quest.calculateStreak(now: today), 3);
+      });
+
+      test('weekly: current week still pending does not break it', () {
+        final quest = testQuest.copyWith(
+          repeatFrequency: RepeatFrequency.weekly,
+          completionNotes: notesFor([
+            DateTime(2025, 6, 4),
+            DateTime(2025, 5, 26),
+          ]),
+        );
+
+        expect(quest.calculateStreak(now: today), 2);
+      });
+
+      test('weekly: a missed week breaks the streak', () {
+        final quest = testQuest.copyWith(
+          repeatFrequency: RepeatFrequency.weekly,
+          completionNotes: notesFor([
+            DateTime(2025, 6, 10),
+            // Week of 2-8 Jun missing
+            DateTime(2025, 5, 26),
+          ]),
+        );
+
+        expect(quest.calculateStreak(now: today), 1);
+      });
+
+      test('monthly: counts consecutive months with a completion', () {
+        final quest = testQuest.copyWith(
+          repeatFrequency: RepeatFrequency.monthly,
+          completionNotes: notesFor([
+            DateTime(2025, 6, 3),
+            DateTime(2025, 5, 20),
+            DateTime(2025, 4, 28),
+          ]),
+        );
+
+        expect(quest.calculateStreak(now: today), 3);
+      });
+
+      test('monthly: current month still pending does not break it', () {
+        final quest = testQuest.copyWith(
+          repeatFrequency: RepeatFrequency.monthly,
+          completionNotes: notesFor([
+            DateTime(2025, 5, 20),
+            DateTime(2025, 4, 28),
+          ]),
+        );
+
+        expect(quest.calculateStreak(now: today), 2);
+      });
+
+      test('monthly: a missed month breaks the streak', () {
+        final quest = testQuest.copyWith(
+          repeatFrequency: RepeatFrequency.monthly,
+          completionNotes: notesFor([
+            DateTime(2025, 6, 3),
+            // May missing
+            DateTime(2025, 4, 28),
+          ]),
+        );
+
+        expect(quest.calculateStreak(now: today), 1);
+      });
+    });
+
     group('equality', () {
       test('equal quests are equal', () {
         final quest1 = Quest(

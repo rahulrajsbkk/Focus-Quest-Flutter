@@ -167,6 +167,13 @@ class UserProgressNotifier extends AsyncNotifier<UserProgress> {
       }
     }
 
+    // Compensating adjustments (e.g. quest uncompletion) can briefly
+    // outnumber completions when events sync out of order — never show
+    // negative totals.
+    totalXp = totalXp < 0 ? 0 : totalXp;
+    quests = quests < 0 ? 0 : quests;
+    subQuests = subQuests < 0 ? 0 : subQuests;
+
     // Update Progress Object
     p = p.copyWith(
       totalXp: totalXp,
@@ -309,8 +316,7 @@ class UserProgressNotifier extends AsyncNotifier<UserProgress> {
   }) async {
     if (!_gamificationEnabled) return;
 
-    // Award 1 XP per minute of focus, minimum 5 XP
-    final calculatedXp = duration.inMinutes.clamp(5, 500);
+    final calculatedXp = xpForFocusDuration(duration);
 
     final event = UserActivityEvent(
       id: const Uuid().v4(),
@@ -340,8 +346,28 @@ class UserProgressNotifier extends AsyncNotifier<UserProgress> {
       id: const Uuid().v4(),
       userId: _ownerId,
       type: UserActivityType.questCompleted,
-      xpEarned: 50, // Default quest XP
+      xpEarned: questXpReward,
       occurredAt: DateTime.now(),
+    );
+
+    await _recordEvent(event);
+  }
+
+  /// Reverses a quest completion so toggling a quest on and off doesn't
+  /// mint XP. Uses a compensating manual adjustment (negative XP, quest
+  /// count -1) rather than deleting the original event, which keeps the
+  /// event log append-only and sync-safe. Adjustments don't count as
+  /// streak activity.
+  Future<void> uncompleteQuest() async {
+    if (!_gamificationEnabled) return;
+
+    final event = UserActivityEvent(
+      id: const Uuid().v4(),
+      userId: _ownerId,
+      type: UserActivityType.manualAdjustment,
+      xpEarned: -questXpReward,
+      occurredAt: DateTime.now(),
+      metadata: const {'questsCompleted': -1, 'reason': 'questUncompleted'},
     );
 
     await _recordEvent(event);

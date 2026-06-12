@@ -1,5 +1,15 @@
 import 'package:flutter/foundation.dart';
 
+/// XP awarded for completing a quest.
+const int questXpReward = 50;
+
+/// XP awarded for completing a sub-quest.
+const int subQuestXpReward = 10;
+
+/// XP awarded for a completed focus session: 1 XP per minute of focus,
+/// clamped to a minimum of 5 and a maximum of 500.
+int xpForFocusDuration(Duration duration) => duration.inMinutes.clamp(5, 500);
+
 /// XP required for each level.
 ///
 /// Uses a simple formula: level N requires N * 100 XP from level N-1.
@@ -284,7 +294,7 @@ class UserProgress {
   }
 
   /// Records a completed quest and awards XP.
-  UserProgress completeQuest({int xpReward = 50, DateTime? now}) {
+  UserProgress completeQuest({int xpReward = questXpReward, DateTime? now}) {
     return copyWith(
       totalXp: totalXp + xpReward,
       questsCompleted: questsCompleted + 1,
@@ -293,7 +303,10 @@ class UserProgress {
   }
 
   /// Records a completed sub-quest and awards XP.
-  UserProgress completeSubQuest({int xpReward = 10, DateTime? now}) {
+  UserProgress completeSubQuest({
+    int xpReward = subQuestXpReward,
+    DateTime? now,
+  }) {
     return copyWith(
       totalXp: totalXp + xpReward,
       subQuestsCompleted: subQuestsCompleted + 1,
@@ -307,8 +320,7 @@ class UserProgress {
     int? xpReward,
     DateTime? now,
   }) {
-    // Award 1 XP per minute of focus, minimum 5 XP
-    final calculatedXp = xpReward ?? sessionDuration.inMinutes.clamp(5, 500);
+    final calculatedXp = xpReward ?? xpForFocusDuration(sessionDuration);
 
     return copyWith(
       totalXp: totalXp + calculatedXp,

@@ -241,6 +241,11 @@ class QuestListNotifier extends AsyncNotifier<QuestListState> {
         // Recalculate streak after uncompleting
         final newStreak = uncompletedQuest.calculateStreak();
         updatedQuest = uncompletedQuest.copyWith(currentStreak: newStreak);
+
+        // Reverse the XP awarded when this completion was recorded
+        unawaited(
+          ref.read(userProgressProvider.notifier).uncompleteQuest(),
+        );
       } else {
         // Completing for this day (or moving completion to this day)
         final updatedNotes = Map<String, String>.from(quest.completionNotes);
@@ -279,6 +284,11 @@ class QuestListNotifier extends AsyncNotifier<QuestListState> {
           status: QuestStatus.pending,
           updatedAt: now,
           completionNotes: updatedNotes,
+        );
+
+        // Reverse the XP awarded when this completion was recorded
+        unawaited(
+          ref.read(userProgressProvider.notifier).uncompleteQuest(),
         );
       } else {
         if (note != null && note.isNotEmpty) {

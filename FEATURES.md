@@ -36,14 +36,14 @@ A brief overview of implemented features in the Focus Quest app.
 
 ## 🏆 Progress & Gamification
 
-- **XP System** — Earn experience points for completing quests, sub-quests, and focus sessions
+- **XP System** — Earn experience points for completing quests and focus sessions (1 XP per focus minute, 50 XP per quest)
 - **Leveling** — Progressive level system with increasing XP requirements
-- **Streaks** — Daily activity tracking with current and longest streak
+- **Streaks** — Daily activity tracking with current and longest streak; repeating quests track per-quest streaks (daily, weekly, and monthly)
 - **Achievements** — Unlock badges for milestones:
-  - First Quest, Quest Master (10+), Quest Legend (50+)
-  - First Focus, Focus Guru (100+ sessions)
+  - First Quest, Quest Master (10+), Quest Legend (100+)
+  - First Focus, Focus Hour (1h+), Focus Marathon (10h+)
   - Streak milestones (7-day, 30-day)
-  - Level milestones (10, 25)
+  - Level milestones (5, 10, 25)
 
 ---
 
