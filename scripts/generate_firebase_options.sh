@@ -135,6 +135,12 @@ EOF
 
 echo "lib/firebase_options.dart generated successfully."
 
+# Normalize formatting so the pre-commit dart-format check doesn't trip on
+# the generated file.
+if command -v dart >/dev/null 2>&1; then
+  dart format lib/firebase_options.dart >/dev/null
+fi
+
 # Regenerate .env only if running in Vercel or .env does not exist.
 # This prevents overwriting local .env configurations (e.g. Android signing keys) during development.
 if [ "$VERCEL" = "1" ] || [ ! -f .env ]; then
