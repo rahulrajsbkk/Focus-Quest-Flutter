@@ -249,6 +249,9 @@ class QuestListNotifier extends AsyncNotifier<QuestListState> {
       } else {
         // Completing for this day (or moving completion to this day)
         final updatedNotes = Map<String, String>.from(quest.completionNotes);
+        // Re-completing a date that already has an entry (e.g. from the
+        // calendar) must not award XP or inflate the completion count again.
+        final isNewCompletionForDate = !updatedNotes.containsKey(dateKey);
         // Always add an entry for the date, even with empty note, to track
         // streaks
         updatedNotes[dateKey] = note ?? updatedNotes[dateKey] ?? '';
@@ -256,7 +259,9 @@ class QuestListNotifier extends AsyncNotifier<QuestListState> {
         final completedQuest = quest.copyWith(
           status: QuestStatus.completed,
           lastCompletedAt: now,
-          completionCount: quest.completionCount + 1,
+          completionCount: isNewCompletionForDate
+              ? quest.completionCount + 1
+              : quest.completionCount,
           updatedAt: now,
           completionNotes: updatedNotes,
         );
@@ -271,9 +276,11 @@ class QuestListNotifier extends AsyncNotifier<QuestListState> {
         );
 
         // Update global user progress stats
-        unawaited(
-          ref.read(userProgressProvider.notifier).completeQuest(),
-        );
+        if (isNewCompletionForDate) {
+          unawaited(
+            ref.read(userProgressProvider.notifier).completeQuest(),
+          );
+        }
       }
     } else {
       // Non-repeating quest - simple toggle
