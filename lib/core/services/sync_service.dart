@@ -35,10 +35,11 @@ extension on _SyncEntity {
 }
 
 class SyncService {
-  SyncService(this._ref);
+  SyncService(this._ref, {FirestoreService? firestore})
+    : _firestore = firestore ?? FirestoreService();
 
   final Ref _ref;
-  final FirestoreService _firestore = FirestoreService();
+  final FirestoreService _firestore;
   final SembastService _sembast = SembastService();
 
   final List<StreamSubscription<dynamic>> _subscriptions = [];

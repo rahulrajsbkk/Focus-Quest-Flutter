@@ -19,7 +19,10 @@ const String _serverUpdatedAtField = '_serverUpdatedAt';
 typedef RemoteSnapshot<T> = ({List<T> items, bool isFromCache});
 
 class FirestoreService {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  /// Lazy so subclasses (test fakes) can be constructed without a Firebase
+  /// app initialized — a field initializer would run on construction and
+  /// throw in tests.
+  FirebaseFirestore get _firestore => FirebaseFirestore.instance;
 
   // MARK: - User Profile & Settings
 
