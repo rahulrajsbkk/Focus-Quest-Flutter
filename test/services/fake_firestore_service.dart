@@ -23,6 +23,10 @@ class FakeFirestoreService extends FirestoreService {
   /// rejected write (e.g. permission-denied).
   bool failWrites = false;
 
+  /// How many times the sessions stream was (re)requested — lets tests
+  /// observe stream restarts.
+  int sessionStreamRequests = 0;
+
   final questsController = StreamController<RemoteSnapshot<Quest>>.broadcast();
   final sessionsController =
       StreamController<RemoteSnapshot<FocusSession>>.broadcast();
@@ -83,8 +87,10 @@ class FakeFirestoreService extends FirestoreService {
       sessions.values.toList();
 
   @override
-  Stream<RemoteSnapshot<FocusSession>> getFocusSessionsStream(String userId) =>
-      sessionsController.stream;
+  Stream<RemoteSnapshot<FocusSession>> getFocusSessionsStream(String userId) {
+    sessionStreamRequests++;
+    return sessionsController.stream;
+  }
 
   @override
   Future<void> deleteFocusSession(String userId, String sessionId) async {

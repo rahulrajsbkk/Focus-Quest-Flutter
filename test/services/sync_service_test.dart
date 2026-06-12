@@ -283,6 +283,89 @@ void main() {
         );
       });
 
+      test('outbox retries periodically while streams are active', () async {
+        final fastRetry = ProviderContainer(
+          overrides: [
+            syncServiceProvider.overrideWith(
+              (ref) => SyncService(
+                ref,
+                firestore: fake,
+                outboxRetryInterval: const Duration(milliseconds: 100),
+              ),
+            ),
+          ],
+        );
+        addTearDown(() {
+          fastRetry.read(syncServiceProvider).stopRealTimeSync();
+          fastRetry.dispose();
+        });
+        final fastSync = fastRetry.read(syncServiceProvider)
+          ..user = _signedInUser;
+
+        final db = await sembast.database;
+        final session = _session('s1');
+        await sembast.focusSessions.record('s1').put(db, session.toJson());
+        fake.failWrites = true;
+        await fastSync.syncFocusSession(session);
+        expect(fake.sessions, isEmpty);
+
+        fastSync.startRealTimeSync();
+        fake.failWrites = false;
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+
+        expect(fake.sessions['s1'], isNotNull);
+        expect(await sembast.outbox.find(db), isEmpty);
+      });
+
+      test('streams restart with backoff after an error', () async {
+        final fastRestart = ProviderContainer(
+          overrides: [
+            syncServiceProvider.overrideWith(
+              (ref) => SyncService(
+                ref,
+                firestore: fake,
+                streamRestartDelay: const Duration(milliseconds: 50),
+              ),
+            ),
+          ],
+        );
+        addTearDown(() {
+          fastRestart.read(syncServiceProvider).stopRealTimeSync();
+          fastRestart.dispose();
+        });
+        fastRestart.read(syncServiceProvider)
+          ..user = _signedInUser
+          ..startRealTimeSync();
+        expect(fake.sessionStreamRequests, 1);
+
+        fake.sessionsController.addError(Exception('fatal stream error'));
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+
+        expect(fake.sessionStreamRequests, 2);
+      });
+
+      test('onAppResumed flushes pending pushes and revives streams', () async {
+        sync.user = _signedInUser;
+        final db = await sembast.database;
+        final session = _session('s1');
+        await sembast.focusSessions.record('s1').put(db, session.toJson());
+        fake.failWrites = true;
+        await sync.syncFocusSession(session);
+        expect(fake.sessions, isEmpty);
+
+        fake.failWrites = false;
+        await sync.onAppResumed();
+
+        expect(fake.sessions['s1'], isNotNull);
+        expect(fake.sessionStreamRequests, 1);
+      });
+
+      test('onAppResumed no-ops when signed out', () async {
+        await sync.onAppResumed();
+
+        expect(fake.sessionStreamRequests, 0);
+      });
+
       test('stream errors are swallowed and do not crash', () async {
         sync
           ..user = _signedInUser

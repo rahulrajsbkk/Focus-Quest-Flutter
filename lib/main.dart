@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -5,6 +7,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:focus_quest/core/services/auth_service.dart';
 import 'package:focus_quest/core/services/notification_service.dart';
+import 'package:focus_quest/core/services/sync_service.dart';
 import 'package:focus_quest/core/services/widget_service.dart';
 import 'package:focus_quest/core/theme/app_theme.dart';
 import 'package:focus_quest/features/navigation/screens/main_screen.dart';
@@ -85,12 +88,40 @@ class MyApp extends ConsumerWidget {
   }
 }
 
-class _WidgetUpdateWrapper extends ConsumerWidget {
+class _WidgetUpdateWrapper extends ConsumerStatefulWidget {
   const _WidgetUpdateWrapper({required this.child});
   final Widget child;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_WidgetUpdateWrapper> createState() =>
+      _WidgetUpdateWrapperState();
+}
+
+class _WidgetUpdateWrapperState extends ConsumerState<_WidgetUpdateWrapper>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Pushes queued while backgrounded/offline must not wait for the next
+      // cold start to reach other devices; this also revives dead streams.
+      unawaited(ref.read(syncServiceProvider).onAppResumed());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     // Listen to activity stats changes to update home widget
     ref.listen(activityHeatmapProvider, (previous, next) {
       if (next.hasValue) {
@@ -102,6 +133,6 @@ class _WidgetUpdateWrapper extends ConsumerWidget {
       }
     });
 
-    return child;
+    return widget.child;
   }
 }

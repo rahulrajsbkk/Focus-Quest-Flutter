@@ -35,18 +35,36 @@ extension on _SyncEntity {
 }
 
 class SyncService {
-  SyncService(this._ref, {FirestoreService? firestore})
-    : _firestore = firestore ?? FirestoreService();
+  SyncService(
+    this._ref, {
+    FirestoreService? firestore,
+    this.outboxRetryInterval = const Duration(seconds: 30),
+    this.streamRestartDelay = const Duration(seconds: 10),
+  }) : _firestore = firestore ?? FirestoreService();
 
   final Ref _ref;
   final FirestoreService _firestore;
   final SembastService _sembast = SembastService();
+
+  /// How often pending outbox entries are retried while real-time sync is
+  /// active. Without this, a push that failed while the app stayed open
+  /// (e.g. a brief offline window) would wait until the next launch to
+  /// retry — other devices would never see the change.
+  final Duration outboxRetryInterval;
+
+  /// Base delay before resubscribing after a stream error. Doubles per
+  /// consecutive failure (capped at 8x) and resets once data flows again.
+  final Duration streamRestartDelay;
 
   final List<StreamSubscription<dynamic>> _subscriptions = [];
 
   // Debouncer for userProgressProvider invalidation during incoming event
   // bursts (M6). 300ms collapses the typical backfill into one rebuild.
   Timer? _progressInvalidateDebounce;
+
+  Timer? _outboxRetryTimer;
+  Timer? _streamRestartTimer;
+  int _streamRestartAttempts = 0;
 
   /// The identity used by every sync guard (null = signed out). AuthNotifier
   /// sets this on cold start, on every user transition, and on settings
@@ -97,14 +115,53 @@ class SyncService {
               onError: _logStreamError('events'),
             ),
       );
+
+    // Retry pending pushes while the app stays open so edits made during a
+    // brief offline window still reach other devices without a relaunch.
+    _outboxRetryTimer = Timer.periodic(
+      outboxRetryInterval,
+      (_) => unawaited(flushOutbox()),
+    );
   }
 
   /// Without an onError handler a single stream error (e.g.
   /// permission-denied) kills the subscription silently and surfaces as an
-  /// unhandled async error. Full sync at next launch / Sync Now reconciles.
+  /// unhandled async error. Firestore ends the snapshot stream on fatal
+  /// errors, so we also schedule a full resubscribe with backoff.
   void Function(Object, StackTrace) _logStreamError(String label) {
-    return (Object e, StackTrace s) =>
-        debugPrint('Sync stream error ($label): $e');
+    return (Object e, StackTrace s) {
+      debugPrint('Sync stream error ($label): $e');
+      _scheduleStreamRestart();
+    };
+  }
+
+  /// Restarts all real-time streams after [streamRestartDelay], doubling per
+  /// consecutive failure (capped at 8x). Restart attempts reset as soon as
+  /// any stream delivers data again.
+  void _scheduleStreamRestart() {
+    if (_streamRestartTimer != null) return;
+    final multiplier = 1 << _streamRestartAttempts.clamp(0, 3);
+    _streamRestartTimer = Timer(streamRestartDelay * multiplier, () {
+      _streamRestartTimer = null;
+      _streamRestartAttempts++;
+      startRealTimeSync();
+    });
+  }
+
+  /// Marks the streams healthy: the next error backs off from the base
+  /// delay again.
+  void _noteStreamHealthy() => _streamRestartAttempts = 0;
+
+  /// Called when the app returns to the foreground. Firestore streams catch
+  /// up on their own after a suspension, but pending outbox pushes do not —
+  /// flush them so edits made just before backgrounding reach other devices.
+  /// Also revives real-time sync if the streams died while suspended.
+  Future<void> onAppResumed() async {
+    if (!_isSyncEnabled || _userId == null) return;
+    if (_subscriptions.isEmpty) {
+      startRealTimeSync();
+    }
+    await flushOutbox();
   }
 
   /// Stops all real-time sync subscriptions.
@@ -118,6 +175,10 @@ class SyncService {
     }
     _progressInvalidateDebounce?.cancel();
     _progressInvalidateDebounce = null;
+    _outboxRetryTimer?.cancel();
+    _outboxRetryTimer = null;
+    _streamRestartTimer?.cancel();
+    _streamRestartTimer = null;
   }
 
   // MARK: - Per-entity write APIs (called by providers)
@@ -528,6 +589,7 @@ class SyncService {
   }
 
   Future<void> _handleIncomingQuests(RemoteSnapshot<Quest> snapshot) async {
+    _noteStreamHealthy();
     final remoteQuests = snapshot.items;
     debugPrint('Sync: Received ${remoteQuests.length} quests');
     final db = await _sembast.database;
@@ -570,6 +632,7 @@ class SyncService {
   Future<void> _handleIncomingFocusSessions(
     RemoteSnapshot<FocusSession> snapshot,
   ) async {
+    _noteStreamHealthy();
     final remoteSessions = snapshot.items;
     debugPrint('Sync: Received ${remoteSessions.length} sessions');
     final db = await _sembast.database;
@@ -610,6 +673,7 @@ class SyncService {
   Future<void> _handleIncomingJournalEntries(
     RemoteSnapshot<JournalEntry> snapshot,
   ) async {
+    _noteStreamHealthy();
     final remoteEntries = snapshot.items;
     debugPrint('Sync: Received ${remoteEntries.length} entries');
     final db = await _sembast.database;
@@ -654,6 +718,7 @@ class SyncService {
   Future<void> _handleIncomingUserActivityEvents(
     RemoteSnapshot<UserActivityEvent> snapshot,
   ) async {
+    _noteStreamHealthy();
     // Events are immutable and never deleted, so isFromCache is irrelevant
     // here — both cache and server snapshots only ever add records.
     final remoteEvents = snapshot.items;
