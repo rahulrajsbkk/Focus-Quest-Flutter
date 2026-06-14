@@ -61,6 +61,14 @@ android {
             } else {
                 signingConfigs.getByName("debug")
             }
+
+            // R8 minification needs keep/dontwarn rules for flutter_gemma's
+            // MediaPipe LLM inference classes (see proguard-rules.pro).
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }
