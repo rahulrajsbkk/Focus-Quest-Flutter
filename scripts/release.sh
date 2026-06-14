@@ -299,6 +299,7 @@ Built on: $(date)
     # Use array for arguments to handle optional flags and filenames correctly
     gh_args=(release create "$RELEASE_TAG" \
         --repo "$GITHUB_REPO" \
+        --target "$(git rev-parse HEAD)" \
         --title "$RELEASE_TITLE" \
         --notes "$RELEASE_NOTES")
     

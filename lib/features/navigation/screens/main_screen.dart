@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:focus_quest/core/services/device_capability_service.dart';
 import 'package:focus_quest/core/services/haptic_service.dart';
 import 'package:focus_quest/core/theme/app_colors.dart';
+import 'package:focus_quest/features/ai_chat/screens/ai_chat_screen.dart';
 import 'package:focus_quest/features/calendar/screens/calendar_screen.dart';
 import 'package:focus_quest/features/journal/screens/daily_reflection_screen.dart';
 import 'package:focus_quest/features/navigation/providers/navigation_provider.dart';
@@ -30,12 +32,14 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   // AuthNotifier (see lib/features/auth/providers/auth_provider.dart). No
   // per-screen init/listener is needed here.
 
-  final List<Widget> _screens = [
-    const HomeScreen(),
-    const CalendarScreen(),
-    const HomeScreen(), // Dummy for center button
-    const FocusTimerScreen(),
-    const ProfileScreen(),
+  /// Base tabs. Index 2 is a dummy placeholder for the center FAB. The AI
+  /// assistant is appended at index 5 only when the device supports it.
+  static const List<Widget> _baseScreens = [
+    HomeScreen(),
+    CalendarScreen(),
+    HomeScreen(), // Dummy for center button
+    FocusTimerScreen(),
+    ProfileScreen(),
   ];
 
   void _onItemTapped(int index) {
@@ -68,6 +72,17 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     final selectedIndex = ref.watch(navigationProvider);
     final isPowerSaving = ref.watch(focusSessionProvider).isPowerSaving;
 
+    // The AI assistant tab is appended at index 5 only on devices that can run
+    // the model. While the capability check resolves, treat it as unsupported
+    // so the layout doesn't flicker an extra tab in and out.
+    final aiSupported =
+        ref.watch(deviceCapabilityProvider).asData?.value.aiSupported ?? false;
+    final screens = [
+      ..._baseScreens,
+      if (aiSupported) const AiChatScreen(),
+    ];
+    final safeIndex = selectedIndex.clamp(0, screens.length - 1);
+
     // Handle System UI (status bar) based on screen and power saving mode
     ref
       ..listen<bool>(
@@ -82,8 +97,8 @@ class _MainScreenState extends ConsumerState<MainScreen> {
 
     return Scaffold(
       body: IndexedStack(
-        index: selectedIndex,
-        children: _screens,
+        index: safeIndex,
+        children: screens,
       ),
       extendBody: true,
       bottomNavigationBar: (selectedIndex == 3 && isPowerSaving)
@@ -135,6 +150,13 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                       Icons.person_outline_rounded,
                       selectedIndex,
                     ),
+                    if (aiSupported)
+                      _buildNavItem(
+                        5,
+                        Icons.psychology_rounded,
+                        Icons.psychology_outlined,
+                        selectedIndex,
+                      ),
                   ],
                 ),
               ),
@@ -387,7 +409,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       onTap: () => _onItemTapped(index),
       borderRadius: BorderRadius.circular(20),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: Icon(
           isSelected ? selectedIcon : unselectedIcon,
           color: color,

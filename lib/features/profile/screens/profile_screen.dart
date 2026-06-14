@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:focus_quest/core/services/sync_service.dart';
+import 'package:focus_quest/features/ai_chat/widgets/ai_settings_section.dart';
 import 'package:focus_quest/features/auth/presentation/widgets/email_auth_form.dart';
 import 'package:focus_quest/features/auth/providers/auth_provider.dart';
 import 'package:focus_quest/features/journal/providers/journal_provider.dart';
@@ -388,6 +389,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             ),
             const SizedBox(height: 24),
             _buildSettingsSection(context, user),
+            const AiSettingsSection(),
             const SizedBox(height: 48),
             Center(
               child: TextButton.icon(

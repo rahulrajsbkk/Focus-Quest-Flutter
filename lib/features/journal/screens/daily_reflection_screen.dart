@@ -4,16 +4,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:focus_quest/core/services/haptic_service.dart';
 import 'package:focus_quest/features/journal/providers/journal_provider.dart';
 import 'package:focus_quest/features/journal/widgets/mood_selector.dart';
+import 'package:focus_quest/models/journal_draft.dart';
 import 'package:focus_quest/models/journal_entry.dart';
 import 'package:intl/intl.dart';
 
 class DailyReflectionScreen extends ConsumerStatefulWidget {
   const DailyReflectionScreen({
     required this.date,
+    this.prefill,
     super.key,
   });
 
   final DateTime date;
+
+  /// Optional pre-filled values (e.g. inferred by the AI assistant). A saved
+  /// entry for [date] always takes precedence over this draft.
+  final JournalDraft? prefill;
 
   @override
   ConsumerState<DailyReflectionScreen> createState() =>
@@ -32,6 +38,17 @@ class _DailyReflectionScreenState extends ConsumerState<DailyReflectionScreen> {
   @override
   void initState() {
     super.initState();
+    // Apply any AI-inferred draft up front so the form is pre-filled. The
+    // post-frame _loadEntry below overrides it only if a saved entry exists
+    // for this date (real data always wins over a draft).
+    final prefill = widget.prefill;
+    if (prefill != null) {
+      _selectedMood = prefill.mood;
+      _winController.text = prefill.biggestWin;
+      _distractionController.text = prefill.mainDistraction;
+      _improvementController.text = prefill.improvementForTomorrow;
+      _brainDumpController.text = prefill.freeFlowEntry;
+    }
     // Check if there is already an entry for the selected date
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _loadEntry();
